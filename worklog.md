@@ -67,3 +67,91 @@ Replaced all SQLite/Prisma database usage with Supabase (PostgreSQL) across the 
 - No remaining imports of `@prisma/client` in the `src/` directory
 - No remaining imports of `@/lib/db` (the old Prisma path) except the re-export module itself
 - Dev server compiles and serves the application successfully
+
+---
+
+## Task 3: GitHub Repository & Netlify Deployment
+
+**Date:** 2026-04-10
+**Status:** ✅ Completed
+
+### Summary
+Created GitHub repository, pushed all code, and deployed the application to Netlify with Supabase environment variables configured.
+
+### What was done
+
+1. **Created GitHub repository** at `https://github.com/yayass3r/cloud-ide`
+   - Used GitHub PAT for API authentication
+   - Repository description: "Cloud IDE - بيئة تطوير متكاملة في المتصفح | Next.js + Supabase + Monaco Editor"
+
+2. **Pushed all code** to GitHub
+   - Configured git user as `yayass3r`
+   - Full commit history with all components, API routes, and configurations
+
+3. **Deployed to Netlify** at `https://cloud-ide-ar.netlify.app`
+   - Created new Netlify site: `cloud-ide-ar`
+   - Configured `netlify.toml` with build settings, CORS headers for WebContainers, and environment variables
+   - Set environment variables via Netlify CLI:
+     - `NEXT_PUBLIC_SUPABASE_URL`
+     - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+     - `SUPABASE_SERVICE_ROLE_KEY`
+   - Linked local project to Netlify site
+   - Multiple successful deployments
+
+4. **Verified deployment**
+   - HTTP 200 on main page
+   - RTL Arabic content renders correctly
+   - API endpoints respond properly (`/api/setup`, `/api/auth`, `/api/projects`)
+
+### Database Connectivity Issue
+- Supabase PostgreSQL database is only accessible via IPv6, which is not available in the build environment
+- All AWS pooler regions were tested (17 regions, 34 endpoints) - none recognized the project
+- REST API works (HTTP/HTTPS), but cannot execute DDL (CREATE TABLE) through it
+- Solution: Created automatic setup wizard for the user to run SQL manually
+
+### Files modified
+- `netlify.toml` — Updated build config and headers
+- `.gitignore` — Added `.netlify/`
+- `.env.production` — Created with Supabase credentials
+
+---
+
+## Task 4: Database Setup Wizard
+
+**Date:** 2026-04-10
+**Status:** ✅ Completed
+
+### Summary
+Created an automatic database setup wizard that detects when Supabase tables are missing and guides the user through creating them.
+
+### What was done
+
+1. **Created `src/components/SetupWizard.tsx`** — Full-featured setup wizard:
+   - Checks database status on mount via `GET /api/setup`
+   - Fetches SQL migration via `POST /api/setup`
+   - 4-step Arabic instructions with icons
+   - SQL code block with copy-to-clipboard functionality
+   - Direct link to Supabase SQL Editor
+   - "Check Again" button with loading state
+   - Progress bar and loading indicators
+   - Error handling for network failures
+   - Framer Motion animations, emerald/teal theme, RTL support
+
+2. **Updated `src/app/page.tsx`** — Integrated setup flow:
+   - Added `dbReady` state management
+   - Auto-checks database on app load
+   - Shows SetupWizard when tables are missing
+   - Normal app flow only starts after database is confirmed ready
+
+### Flow
+1. User visits app → `/api/setup` called
+2. If `ready: false` → SetupWizard displayed
+3. User follows steps, runs SQL in Supabase SQL Editor
+4. User clicks "تحقق مرة أخرى" → re-checks `/api/setup`
+5. If `ready: true` → Normal app loads
+
+### Files created
+- `src/components/SetupWizard.tsx`
+
+### Files modified
+- `src/app/page.tsx` — Added database check and SetupWizard integration
