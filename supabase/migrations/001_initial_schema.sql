@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS users (
   is_frozen     BOOLEAN NOT NULL DEFAULT false,
   is_online     BOOLEAN NOT NULL DEFAULT false,
   last_seen     TIMESTAMPTZ,
+  email_verified BOOLEAN NOT NULL DEFAULT false,
+  verification_token TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -30,6 +32,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_is_online ON users(is_online);
+CREATE INDEX IF NOT EXISTS idx_users_verification_token ON users(verification_token);
 
 -- Users updated_at trigger
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -194,16 +197,86 @@ CREATE POLICY "Service role can insert chat messages"
   WITH CHECK (true);
 
 -- ============================================================
+-- Supabase Storage: Avatars Bucket
+-- ============================================================
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'avatars',
+  'avatars',
+  true,
+  2097152, -- 2MB
+  ARRAY['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml']
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Storage policies for avatars bucket
+-- Allow public read access to avatars
+CREATE POLICY "Avatars are publicly viewable"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'avatars');
+
+-- Allow authenticated users to upload their own avatar
+CREATE POLICY "Users can upload their own avatar"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id = 'avatars');
+
+-- Allow users to update their own avatar
+CREATE POLICY "Users can update their own avatar"
+  ON storage.objects FOR UPDATE
+  USING (bucket_id = 'avatars')
+  WITH CHECK (bucket_id = 'avatars');
+
+-- Allow service role to delete avatars
+CREATE POLICY "Service role can delete avatars"
+  ON storage.objects FOR DELETE
+  USING (bucket_id = 'avatars');
+
+-- ============================================================
+-- Additional columns for password reset and email verification
+-- ============================================================
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token TEXT;
+
+-- Index for reset_token lookups
+CREATE INDEX IF NOT EXISTS idx_users_reset_token ON users(reset_token) WHERE reset_token IS NOT NULL;
+
+-- ============================================================
 -- Seed Data: Default Admin User
 -- Password: admin123 (bcrypt hashed)
 -- ============================================================
-INSERT INTO users (email, name, password, role, bio, avatar)
+INSERT INTO users (email, name, password, role, bio, avatar, email_verified)
 VALUES (
   'admin@cloudide.com',
   'مدير النظام',
   '$2a$10$rBGJ0ZqvQE1Q0QEZ9SJ0.uJj2T5N7cKQ0KR0vFENmH/x9p9jRKLGW',
   'admin',
   'مدير النظام الرئيسي',
-  'https://api.dicebear.com/7.x/initials/svg?seed=AD&backgroundColor=059669'
+  'https://api.dicebear.com/7.x/initials/svg?seed=AD&backgroundColor=059669',
+  true
 )
 ON CONFLICT (email) DO NOTHING;
+
+-- ============================================================
+-- Post-initialization: Add columns if they don't exist (for existing databases)
+-- ============================================================
+DO $$
+BEGIN
+  -- Add email_verified column if it doesn't exist
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'users' AND column_name = 'email_verified'
+  ) THEN
+    ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT false;
+  END IF;
+
+  -- Add verification_token column if it doesn't exist
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'users' AND column_name = 'verification_token'
+  ) THEN
+    ALTER TABLE users ADD COLUMN verification_token TEXT;
+  END IF;
+END
+$$;

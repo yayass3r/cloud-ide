@@ -13,6 +13,10 @@ import {
   Shield,
   X,
   Check,
+  Loader2,
+  Mail,
+  MailCheck,
+  Upload,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -38,7 +42,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useAppStore, type Project } from '@/store'
 
 export default function UserProfile() {
-  const { user, setUser, logout, navigate } = useAppStore()
+  const { user, setUser, logout, navigate, apiFetch } = useAppStore()
   const { toast } = useToast()
 
   const [name, setName] = useState('')
@@ -49,6 +53,7 @@ export default function UserProfile() {
   const [projects, setProjects] = useState<Project[]>([])
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [loading, setLoading] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -70,7 +75,7 @@ export default function UserProfile() {
     async function fetchProjects() {
       if (!user) return
       try {
-        const res = await fetch(`/api/projects?userId=${user.id}`)
+        const res = await apiFetch(`/api/projects?userId=${user.id}`)
         const data = await res.json()
         setProjects(data.projects || [])
       } catch (err) {
@@ -104,6 +109,15 @@ export default function UserProfile() {
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      // Validate file size (2MB)
+      if (file.size > 2 * 1024 * 1024) {
+        toast({
+          title: 'خطأ',
+          description: 'حجم الصورة يجب أن يكون أقل من 2 ميجابايت',
+          variant: 'destructive',
+        })
+        return
+      }
       const reader = new FileReader()
       reader.onloadend = () => {
         setAvatarPreview(reader.result as string)
@@ -116,16 +130,21 @@ export default function UserProfile() {
     if (!user) return
     setSaving(true)
     try {
-      const res = await fetch(`/api/users/${user.id}`, {
+      const payload: Record<string, unknown> = {
+        name,
+        bio,
+        skills: JSON.stringify(skills),
+        githubUrl,
+      }
+
+      // Only send avatar if it was changed
+      if (avatarPreview) {
+        payload.avatar = avatarPreview
+      }
+
+      const res = await apiFetch(`/api/users/${user.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          bio,
-          skills: JSON.stringify(skills),
-          githubUrl,
-          avatar: avatarPreview,
-        }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
       if (data.user) {
@@ -136,10 +155,18 @@ export default function UserProfile() {
           skills: data.user.skills,
           githubUrl: data.user.githubUrl,
           avatar: data.user.avatar,
+          emailVerified: data.user.emailVerified,
         })
+        setAvatarPreview(null) // Clear preview after successful save
         toast({
           title: 'تم الحفظ',
           description: 'تم تحديث الملف الشخصي بنجاح',
+        })
+      } else if (data.error) {
+        toast({
+          title: 'خطأ',
+          description: data.error,
+          variant: 'destructive',
         })
       }
     } catch {
@@ -155,9 +182,8 @@ export default function UserProfile() {
 
   const handleTogglePublic = async (project: Project) => {
     try {
-      const res = await fetch('/api/projects', {
+      const res = await apiFetch('/api/projects', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: project.id, isPublic: !project.isPublic }),
       })
       const data = await res.json()
@@ -174,7 +200,7 @@ export default function UserProfile() {
   const handleDeleteAccount = async () => {
     if (!user) return
     try {
-      await fetch(`/api/users/${user.id}`, { method: 'DELETE' })
+      await apiFetch(`/api/users/${user.id}`, { method: 'DELETE' })
       logout()
       toast({
         title: 'تم حذف الحساب',
@@ -184,6 +210,34 @@ export default function UserProfile() {
       toast({
         title: 'خطأ',
         description: 'فشل في حذف الحساب',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleVerifyEmail = async () => {
+    if (!user) return
+    try {
+      const res = await fetch(`/api/auth?action=verify&userId=${user.id}`)
+      const data = await res.json()
+      if (data.success) {
+        toast({
+          title: 'تم التحقق',
+          description: 'تم التحقق من بريدك الإلكتروني بنجاح!',
+        })
+        // Update local user state
+        setUser({ ...user, emailVerified: true })
+      } else {
+        toast({
+          title: 'خطأ',
+          description: data.error || 'فشل في التحقق من البريد الإلكتروني',
+          variant: 'destructive',
+        })
+      }
+    } catch {
+      toast({
+        title: 'خطأ',
+        description: 'فشل في التحقق من البريد الإلكتروني',
         variant: 'destructive',
       })
     }
@@ -204,6 +258,9 @@ export default function UserProfile() {
   const publicProjects = projects.filter((p) => p.isPublic).length
   const deployedProjects = projects.filter((p) => p.isDeployed).length
 
+  const displayAvatar = avatarPreview || user.avatar || undefined
+  const emailVerified = (user as Record<string, unknown>).emailVerified as boolean | undefined
+
   return (
     <div className="space-y-6 p-4 md:p-6" dir="rtl">
       {/* Profile Header */}
@@ -218,17 +275,24 @@ export default function UserProfile() {
             <div className="flex flex-col sm:flex-row sm:items-end gap-4 -mt-12 sm:-mt-16">
               <div className="relative">
                 <Avatar className="size-24 md:size-32 border-4 border-background shadow-xl">
-                  <AvatarImage src={avatarPreview || user.avatar || undefined} alt={user.name} />
+                  <AvatarImage src={displayAvatar} alt={user.name} />
                   <AvatarFallback className="text-lg md:text-2xl font-bold bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="absolute bottom-0 left-0 bg-primary text-primary-foreground p-1.5 rounded-full shadow-md hover:bg-primary/90 transition-colors"
-                >
-                  <Camera className="size-3.5" />
-                </button>
+                {uploadingAvatar ? (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-full bg-background/80">
+                    <Loader2 className="size-5 animate-spin text-emerald-500" />
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="absolute bottom-0 left-0 bg-primary text-primary-foreground p-1.5 rounded-full shadow-md hover:bg-primary/90 transition-colors"
+                    title="تغيير الصورة الرمزية"
+                  >
+                    <Camera className="size-3.5" />
+                  </button>
+                )}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -245,7 +309,23 @@ export default function UserProfile() {
                     {roleLabel}
                   </Badge>
                 </div>
-                <p className="text-muted-foreground text-sm mt-1">{user.email}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <p className="text-muted-foreground text-sm">{user.email}</p>
+                  {emailVerified ? (
+                    <Badge variant="outline" className="gap-1 text-emerald-600 border-emerald-500/30 bg-emerald-500/10">
+                      <MailCheck className="size-3" />
+                      تم التحقق
+                    </Badge>
+                  ) : (
+                    <button
+                      onClick={handleVerifyEmail}
+                      className="inline-flex items-center gap-1 text-xs text-orange-500 hover:text-orange-600 transition-colors"
+                    >
+                      <Mail className="size-3" />
+                      تحقق الآن
+                    </button>
+                  )}
+                </div>
                 <p className="text-muted-foreground/70 text-xs mt-1">
                   عضو منذ{' '}
                   {new Date(user.createdAt || '').toLocaleDateString('ar-EG', {
@@ -278,6 +358,56 @@ export default function UserProfile() {
                 <CardDescription>تحديث معلوماتك الشخصية</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Avatar Upload Section */}
+                <div className="space-y-2">
+                  <Label>الصورة الرمزية</Label>
+                  <div className="flex items-center gap-4">
+                    <Avatar className="size-16 border-2 border-muted">
+                      <AvatarImage src={displayAvatar} alt={user.name} />
+                      <AvatarFallback className="text-sm font-bold bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
+                        {initials}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadingAvatar}
+                      >
+                        {uploadingAvatar ? (
+                          <>
+                            <Loader2 className="size-3.5 animate-spin" />
+                            جاري الرفع...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="size-3.5" />
+                            تغيير الصورة الرمزية
+                          </>
+                        )}
+                      </Button>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        JPG, PNG, GIF — الحد الأقصى 2 ميجابايت
+                      </p>
+                    </div>
+                  </div>
+                  {avatarPreview && (
+                    <div className="mt-2 p-3 rounded-lg border bg-muted/30">
+                      <div className="flex items-center gap-2">
+                        <img
+                          src={avatarPreview}
+                          alt="معاينة الصورة"
+                          className="size-12 rounded-full object-cover border"
+                        />
+                        <span className="text-sm text-muted-foreground">تم اختيار صورة جديدة</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="name">الاسم</Label>
                   <Input
@@ -410,7 +540,16 @@ export default function UserProfile() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-muted-foreground">البريد الإلكتروني</span>
-                    <p className="font-medium mt-0.5" dir="ltr">{user.email}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="font-medium" dir="ltr">{user.email}</p>
+                      {emailVerified ? (
+                        <MailCheck className="size-3.5 text-emerald-500 shrink-0" />
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-orange-500 border-orange-500/30">
+                          لم يتم التحقق
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <span className="text-muted-foreground">تاريخ التسجيل</span>

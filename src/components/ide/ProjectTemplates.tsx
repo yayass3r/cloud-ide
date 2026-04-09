@@ -53,7 +53,7 @@ const templates: Template[] = [
 ]
 
 export default function ProjectTemplates() {
-  const { user, selectProject, navigate } = useAppStore()
+  const { user, selectProject, navigate, apiFetch } = useAppStore()
   const [loading, setLoading] = useState<string | null>(null)
   const [projectName, setProjectName] = useState('')
 
@@ -63,9 +63,8 @@ export default function ProjectTemplates() {
 
     const name = projectName.trim() || title
     try {
-      const res = await fetch('/api/projects', {
+      const res = await apiFetch('/api/projects', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, template: templateId, userId: user.id }),
       })
       if (res.ok) {

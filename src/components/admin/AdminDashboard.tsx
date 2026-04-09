@@ -68,7 +68,7 @@ interface ActivityItem {
 const ITEMS_PER_PAGE = 8
 
 export default function AdminDashboard() {
-  const { user, navigate } = useAppStore()
+  const { user, navigate, apiFetch } = useAppStore()
   const { toast } = useToast()
 
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -104,8 +104,8 @@ export default function AdminDashboard() {
     async function fetchData() {
       try {
         const [usersRes, statsRes] = await Promise.all([
-          fetch('/api/admin/users'),
-          fetch('/api/admin/stats'),
+          apiFetch('/api/admin/users'),
+          apiFetch('/api/admin/stats'),
         ])
         const usersData = await usersRes.json()
         const statsData = await statsRes.json()
@@ -123,9 +123,8 @@ export default function AdminDashboard() {
   const handleConfirmAction = async () => {
     const { userId, action, newValue } = confirmDialog
     try {
-      const res = await fetch(`/api/admin/users/${userId}`, {
+      const res = await apiFetch(`/api/admin/users/${userId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [action]: newValue }),
       })
       const data = await res.json()

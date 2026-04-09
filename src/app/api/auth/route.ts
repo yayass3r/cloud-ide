@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
 import { toCamel, stripPassword } from '@/lib/supabase-utils'
 
 export async function POST(request: NextRequest) {
@@ -37,10 +38,13 @@ export async function POST(request: NextRequest) {
       // Hash password
       const hashedPassword = await bcrypt.hash(password, 10)
 
+      // Generate verification token
+      const verificationToken = crypto.randomBytes(32).toString('hex')
+
       // Create user
       const { data: user, error: insertError } = await supabaseAdmin
         .from('users')
-        .insert({ email, name, password: hashedPassword })
+        .insert({ email, name, password: hashedPassword, verification_token: verificationToken })
         .select()
         .single()
 
@@ -108,6 +112,76 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'إجراء غير صالح' }, { status: 400 })
   } catch (error) {
     console.error('Auth error:', error)
+    return NextResponse.json({ error: 'حدث خطأ في الخادم' }, { status: 500 })
+  }
+}
+
+// GET /api/auth?action=verify&userId=xxx
+// Email verification endpoint
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const action = searchParams.get('action')
+
+    if (action === 'verify') {
+      const userId = searchParams.get('userId')
+
+      if (!userId) {
+        return NextResponse.json(
+          { success: false, error: 'معرف المستخدم مطلوب' },
+          { status: 400 }
+        )
+      }
+
+      // Find user
+      const { data: user, error: findError } = await supabaseAdmin
+        .from('users')
+        .select('id, email_verified')
+        .eq('id', userId)
+        .single()
+
+      if (findError || !user) {
+        return NextResponse.json(
+          { success: false, error: 'المستخدم غير موجود' },
+          { status: 404 }
+        )
+      }
+
+      if (user.email_verified) {
+        return NextResponse.json({
+          success: true,
+          message: 'البريد الإلكتروني موثق بالفعل',
+          emailVerified: true,
+        })
+      }
+
+      // Mark email as verified
+      const { error: updateError } = await supabaseAdmin
+        .from('users')
+        .update({
+          email_verified: true,
+          verification_token: null,
+        })
+        .eq('id', userId)
+
+      if (updateError) {
+        console.error('Email verification error:', updateError)
+        return NextResponse.json(
+          { success: false, error: 'حدث خطأ في التحقق' },
+          { status: 500 }
+        )
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'تم التحقق من البريد الإلكتروني بنجاح',
+        emailVerified: true,
+      })
+    }
+
+    return NextResponse.json({ error: 'إجراء غير صالح' }, { status: 400 })
+  } catch (error) {
+    console.error('Auth GET error:', error)
     return NextResponse.json({ error: 'حدث خطأ في الخادم' }, { status: 500 })
   }
 }

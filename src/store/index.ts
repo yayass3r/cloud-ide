@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type AppView = 'landing' | 'login' | 'register' | 'dashboard' | 'ide' | 'profile' | 'admin' | 'portfolio' | 'new-project';
+export type AppView = 'landing' | 'login' | 'register' | 'dashboard' | 'ide' | 'profile' | 'admin' | 'portfolio' | 'new-project' | 'forgot-password';
 
 export interface User {
   id: string;
@@ -13,6 +13,7 @@ export interface User {
   githubUrl?: string | null;
   isFrozen: boolean;
   isOnline: boolean;
+  emailVerified?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -44,6 +45,7 @@ interface AppState {
 
   // Auth
   user: User | null;
+  token: string | null;
 
   // Project
   currentProject: Project | null;
@@ -59,18 +61,44 @@ interface AppState {
   // Actions
   navigate: (view: AppView) => void;
   setUser: (user: User | null) => void;
+  setToken: (token: string | null) => void;
   logout: () => void;
   selectProject: (project: Project | null) => void;
   setProjects: (projects: Project[]) => void;
   toggleSidebar: () => void;
   toggleAiChat: () => void;
   setTheme: (theme: 'light' | 'dark') => void;
+
+  // API helper
+  apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
+  getAuthHeaders: () => Record<string, string>;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+const STORAGE_KEY_USER = 'codeStudio_user';
+const STORAGE_KEY_TOKEN = 'codeStudio_token';
+
+function loadFromStorage(key: string): string | null {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem(key);
+  }
+  return null;
+}
+
+function saveToStorage(key: string, value: string | null) {
+  if (typeof window !== 'undefined') {
+    if (value) {
+      localStorage.setItem(key, value);
+    } else {
+      localStorage.removeItem(key);
+    }
+  }
+}
+
+export const useAppStore = create<AppState>((set, get) => ({
   // Initial state
   currentView: 'landing',
   user: null,
+  token: null,
   currentProject: null,
   projects: [],
   sidebarOpen: true,
@@ -80,20 +108,30 @@ export const useAppStore = create<AppState>((set) => ({
   // Actions
   navigate: (view) => set({ currentView: view }),
 
-  setUser: (user) => set({ user }),
+  setUser: (user) => {
+    set({ user });
+    if (user) {
+      saveToStorage(STORAGE_KEY_USER, JSON.stringify(user));
+    }
+  },
+
+  setToken: (token) => {
+    set({ token });
+    saveToStorage(STORAGE_KEY_TOKEN, token);
+  },
 
   logout: () => {
     set({
       user: null,
+      token: null,
       currentProject: null,
       projects: [],
       currentView: 'landing',
       sidebarOpen: true,
       aiChatOpen: false,
     });
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('codeStudio_user');
-    }
+    saveToStorage(STORAGE_KEY_USER, null);
+    saveToStorage(STORAGE_KEY_TOKEN, null);
   },
 
   selectProject: (project) => set({ currentProject: project }),
@@ -105,4 +143,63 @@ export const useAppStore = create<AppState>((set) => ({
   toggleAiChat: () => set((state) => ({ aiChatOpen: !state.aiChatOpen })),
 
   setTheme: (theme) => set({ theme }),
+
+  /**
+   * Get authorization headers including the JWT token
+   */
+  getAuthHeaders: () => {
+    const token = get().token;
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+  },
+
+  /**
+   * Wrapper around fetch that automatically includes the JWT token
+   * in the Authorization header for all API requests.
+   */
+  apiFetch: async (url: string, options: RequestInit = {}) => {
+    const token = get().token;
+    const headers = new Headers(options.headers || {});
+
+    // Set Content-Type if body is JSON and not already set
+    if (options.body && typeof options.body === 'string' && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
+
+    // Add Authorization header if token exists
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+
+    return fetch(url, {
+      ...options,
+      headers,
+    });
+  },
 }));
+
+/**
+ * Initialize auth state from localStorage on the client side.
+ * Call this once in the root component's useEffect.
+ */
+export function initAuthFromStorage() {
+  const userJson = loadFromStorage(STORAGE_KEY_USER);
+  const token = loadFromStorage(STORAGE_KEY_TOKEN);
+
+  if (userJson && token) {
+    try {
+      const user = JSON.parse(userJson);
+      useAppStore.setState({ user, token });
+    } catch {
+      // Invalid stored data — clear it
+      saveToStorage(STORAGE_KEY_USER, null);
+      saveToStorage(STORAGE_KEY_TOKEN, null);
+    }
+  } else if (userJson && !token) {
+    // Have user but no token — clear user too (need to re-login)
+    saveToStorage(STORAGE_KEY_USER, null);
+  }
+}

@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Eye, EyeOff, LogIn, Loader2, AlertCircle } from 'lucide-react'
 
 export default function LoginForm() {
-  const { setUser, navigate } = useAppStore()
+  const { setUser, setToken, navigate } = useAppStore()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -42,6 +42,7 @@ export default function LoginForm() {
       }
 
       setUser(data.user)
+      setToken(data.token)
       navigate('dashboard')
     } catch {
       setError('تعذر الاتصال بالخادم، يرجى المحاولة مرة أخرى')
@@ -113,6 +114,17 @@ export default function LoginForm() {
                   {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
               </div>
+            </div>
+
+            {/* Forgot Password Link */}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => navigate('forgot-password')}
+                className="text-sm text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors"
+              >
+                نسيت كلمة المرور؟
+              </button>
             </div>
 
             <Button

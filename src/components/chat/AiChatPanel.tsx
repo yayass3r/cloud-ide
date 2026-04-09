@@ -143,6 +143,7 @@ export function AiChatPanel() {
   const toggleAiChat = useAppStore((s) => s.toggleAiChat)
   const currentProject = useAppStore((s) => s.currentProject)
   const user = useAppStore((s) => s.user)
+  const apiFetch = useAppStore((s) => s.apiFetch)
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputValue, setInputValue] = useState('')
@@ -194,9 +195,8 @@ export function AiChatPanel() {
           content: m.content,
         }))
 
-        const response = await fetch('/api/ai', {
+        const response = await apiFetch('/api/ai', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             messages: apiMessages,
             projectId: currentProject?.id || null,
@@ -230,7 +230,7 @@ export function AiChatPanel() {
         setIsLoading(false)
       }
     },
-    [isLoading, messages, currentProject, user]
+    [isLoading, messages, currentProject, user, apiFetch]
   )
 
   // Handle keyboard submit

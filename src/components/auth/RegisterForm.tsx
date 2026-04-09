@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Eye, EyeOff, UserPlus, Loader2, AlertCircle } from 'lucide-react'
 
 export default function RegisterForm() {
-  const { navigate, setUser } = useAppStore()
+  const { navigate, setUser, setToken } = useAppStore()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -58,10 +58,11 @@ export default function RegisterForm() {
 
       // Auto-login after successful registration
       const registeredUser = data.user
+      const token = data.token
       if (registeredUser) {
         setUser(registeredUser)
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('codeStudio_user', JSON.stringify(registeredUser))
+        if (token) {
+          setToken(token)
         }
       }
       navigate('dashboard')

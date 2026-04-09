@@ -48,7 +48,7 @@ const statusLabels: Record<string, { label: string; color: string }> = {
 }
 
 export default function UserDashboard() {
-  const { user, navigate, selectProject, setProjects } = useAppStore()
+  const { user, navigate, selectProject, setProjects, apiFetch } = useAppStore()
   const [projects, setLocalProjects] = useState<Project[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -65,7 +65,7 @@ export default function UserDashboard() {
     async function fetchData() {
       if (!user) return
       try {
-        const res = await fetch(`/api/projects?userId=${user.id}`)
+        const res = await apiFetch(`/api/projects?userId=${user.id}`)
         const data = await res.json()
         const projectList: Project[] = data.projects || []
         setLocalProjects(projectList)
@@ -101,9 +101,8 @@ export default function UserDashboard() {
 
   const handleTogglePublic = async (project: Project) => {
     try {
-      const res = await fetch('/api/projects', {
+      const res = await apiFetch('/api/projects', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: project.id, isPublic: !project.isPublic }),
       })
       const data = await res.json()

@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useAppStore } from '@/store'
+import { useAppStore, initAuthFromStorage } from '@/store'
 import AppHeader from '@/components/layout/AppHeader'
 import LandingPage from '@/components/auth/LandingPage'
 import LoginForm from '@/components/auth/LoginForm'
 import RegisterForm from '@/components/auth/RegisterForm'
+import ForgotPasswordForm from '@/components/auth/ForgotPasswordForm'
 import UserDashboard from '@/components/dashboard/UserDashboard'
 import UserProfile from '@/components/dashboard/UserProfile'
 import AdminDashboard from '@/components/admin/AdminDashboard'
@@ -17,7 +18,7 @@ import { AiChatPanel } from '@/components/chat/AiChatPanel'
 import SetupWizard from '@/components/SetupWizard'
 
 export default function Home() {
-  const { currentView, user, setUser, aiChatOpen } = useAppStore()
+  const { currentView, user, setUser } = useAppStore()
   const [dbReady, setDbReady] = useState<boolean | null>(null) // null = checking
 
   // Check database setup status on mount
@@ -35,16 +36,43 @@ export default function Home() {
     checkDb()
   }, [])
 
-  // Restore user session from localStorage
+  // Restore user session from localStorage (including token)
   useEffect(() => {
     if (!user && dbReady === true) {
-      const savedUser = typeof window !== 'undefined' ? localStorage.getItem('codeStudio_user') : null
-      if (savedUser) {
-        try {
-          setUser(JSON.parse(savedUser))
-        } catch {
-          // Ignore parse errors
-        }
+      initAuthFromStorage()
+
+      // Verify the stored token is still valid
+      const storedToken = typeof window !== 'undefined' ? localStorage.getItem('codeStudio_token') : null
+      const storedUser = typeof window !== 'undefined' ? localStorage.getItem('codeStudio_user') : null
+
+      if (storedUser && storedToken) {
+        // Verify token with server
+        fetch('/api/auth', {
+          headers: { Authorization: `Bearer ${storedToken}` },
+        })
+          .then((res) => {
+            if (res.ok) return res.json()
+            // Token invalid — clear everything
+            localStorage.removeItem('codeStudio_user')
+            localStorage.removeItem('codeStudio_token')
+            return null
+          })
+          .then((data) => {
+            if (data && data.user) {
+              setUser(data.user)
+            }
+          })
+          .catch(() => {
+            // On network error, still try to use cached user
+            try {
+              setUser(JSON.parse(storedUser))
+            } catch {
+              // ignore
+            }
+          })
+      } else if (storedUser) {
+        // No token but have user — clear user (need re-login)
+        localStorage.removeItem('codeStudio_user')
       }
     }
   }, [user, setUser, dbReady])
@@ -101,6 +129,8 @@ export default function Home() {
         return <LoginForm />
       case 'register':
         return <RegisterForm />
+      case 'forgot-password':
+        return <ForgotPasswordForm />
       case 'dashboard':
         return <UserDashboard />
       case 'ide':

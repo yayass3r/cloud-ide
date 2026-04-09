@@ -9,7 +9,6 @@ import {
   ArrowRight,
   PanelLeftClose,
   PanelLeftOpen,
-  TerminalSquare,
   CheckCircle2,
   Loader2,
 } from 'lucide-react'
@@ -18,21 +17,12 @@ import { Badge } from '@/components/ui/badge'
 import { useAppStore } from '@/store'
 import FileExplorer from './FileExplorer'
 import CodeEditor, { OpenFile } from './CodeEditor'
+import { getLanguageFromFileName } from './MonacoEditor'
 import Terminal from './Terminal'
 import LivePreview from './LivePreview'
 
 function getLanguage(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase()
-  switch (ext) {
-    case 'js': case 'jsx': return 'javascript'
-    case 'ts': case 'tsx': return 'typescript'
-    case 'html': return 'html'
-    case 'css': return 'css'
-    case 'json': return 'json'
-    case 'py': return 'python'
-    case 'md': return 'markdown'
-    default: return 'text'
-  }
+  return getLanguageFromFileName(name, 'plaintext')
 }
 
 function getTemplateLabel(template: string): string {
@@ -61,6 +51,9 @@ export default function IDEView() {
   const [isRunning, setIsRunning] = useState(false)
   const [isDeploying, setIsDeploying] = useState(false)
   const [deployed, setDeployed] = useState(false)
+  const [deployUrl, setDeployUrl] = useState<string | null>(null)
+  const [deployLogs, setDeployLogs] = useState<string[]>([])
+  const [deployStatus, setDeployStatus] = useState<'idle' | 'pending' | 'building' | 'deployed' | 'failed'>('idle')
   const [terminalKey, setTerminalKey] = useState(0)
 
   // File state
@@ -124,9 +117,8 @@ export default function IDEView() {
     if (!currentProject) return
     try {
       const updatedFiles = { ...fileContents, [path]: content }
-      await fetch('/api/projects', {
+      await apiFetch('/api/projects', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: currentProject.id,
           userId: currentProject.userId,
@@ -136,7 +128,7 @@ export default function IDEView() {
     } catch {
       // Silently handle save errors
     }
-  }, [currentProject, fileContents])
+  }, [currentProject, fileContents, apiFetch])
 
   const handleRun = useCallback(() => {
     setIsRunning(true)
@@ -144,14 +136,47 @@ export default function IDEView() {
     setTerminalKey((k) => k + 1)
   }, [])
 
-  const handleDeploy = useCallback(() => {
+  const handleDeploy = useCallback(async () => {
+    if (!currentProject) return
     setIsDeploying(true)
-    setTimeout(() => {
+    setDeployStatus('pending')
+    setDeployLogs(['بدء عملية النشر...'])
+    setDeployUrl(null)
+
+    try {
+      setDeployStatus('building')
+      setDeployLogs(prev => [...prev, 'تحليل الملفات وإنشاء حزمة النشر...'])
+
+      const res = await fetch('/api/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: currentProject.id,
+          userId: currentProject.userId,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.success) {
+        setDeployStatus('deployed')
+        setDeployed(true)
+        setDeployUrl(data.deployUrl || null)
+        setDeployLogs(prev => [...prev, ...(data.logs?.map((l: { message: string }) => l.message) || []), data.message])
+        setTimeout(() => setDeployed(false), 5000)
+      } else {
+        setDeployStatus('failed')
+        setDeployLogs(prev => [...prev, data.error || 'فشل في النشر'])
+        setTimeout(() => setDeployStatus('idle'), 4000)
+      }
+    } catch {
+      setDeployStatus('failed')
+      setDeployLogs(prev => [...prev, 'خطأ في الاتصال بالخادم'])
+      setTimeout(() => setDeployStatus('idle'), 4000)
+    } finally {
       setIsDeploying(false)
-      setDeployed(true)
-      setTimeout(() => setDeployed(false), 3000)
-    }, 2500)
-  }, [])
+    }
+  }, [currentProject])
 
   const handleRefreshPreview = useCallback(() => {
     setTerminalKey((k) => k + 1)
@@ -191,9 +216,21 @@ export default function IDEView() {
           </div>
 
           {deployed && (
-            <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px] gap-1">
-              <CheckCircle2 className="h-3 w-3" />
-              تم النشر
+            <a
+              href={deployUrl || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex"
+            >
+              <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px] gap-1 cursor-pointer hover:bg-emerald-500/25 transition-colors">
+                <CheckCircle2 className="h-3 w-3" />
+                تم النشر {deployUrl && '↗'}
+              </Badge>
+            </a>
+          )}
+          {deployStatus === 'failed' && (
+            <Badge variant="destructive" className="text-[10px] gap-1">
+              فشل النشر
             </Badge>
           )}
         </div>
@@ -220,14 +257,19 @@ export default function IDEView() {
             size="sm"
             onClick={handleDeploy}
             disabled={isDeploying}
-            className="h-7 gap-1.5 text-xs px-3 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+            className={`h-7 gap-1.5 text-xs px-3 ${
+              isDeploying
+                ? 'text-amber-400 bg-amber-500/10 hover:bg-amber-500/15'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+            }`
+          }
           >
             {isDeploying ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Rocket className="h-3.5 w-3.5" />
             )}
-            نشر
+            {isDeploying ? 'جاري النشر...' : 'نشر'}
           </Button>
 
           {/* AI Assistant */}
