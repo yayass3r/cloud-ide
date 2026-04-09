@@ -1,5 +1,3 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # dependencies
 node_modules
 /.pnp
@@ -30,12 +28,13 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files - CRITICAL: never commit secrets
+.env
+.env.local
+.env.production
 
 # vercel
 .vercel
-
 
 # typescript
 *.tsbuildinfo
@@ -50,5 +49,19 @@ test
 prompt
 
 server.log
+
 # Skills directory
 /skills/
+
+# Database
+/db/*.db
+
+# IDE
+.vscode/
+.idea/
+
+# Z AI scripts
+.zscripts/
+
+# Examples
+/examples/

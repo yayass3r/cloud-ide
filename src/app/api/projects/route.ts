@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { supabaseAdmin } from '@/lib/supabase'
+import { toCamel } from '@/lib/supabase-utils'
 
 // GET /api/projects - List projects by userId
 export async function GET(request: Request) {
@@ -11,17 +12,38 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'معرف المستخدم مطلوب' }, { status: 400 })
     }
 
-    const projects = await db.project.findMany({
-      where: { userId },
-      orderBy: { updatedAt: 'desc' },
-      include: {
-        _count: {
-          select: { deployments: true },
-        },
-      },
-    })
+    const { data: projects, error } = await supabaseAdmin
+      .from('projects')
+      .select('*')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false })
 
-    return NextResponse.json({ projects })
+    if (error) {
+      console.error('Fetch projects error:', error)
+      return NextResponse.json({ error: 'حدث خطأ في جلب المشاريع' }, { status: 500 })
+    }
+
+    // Get deployment counts for all user's projects
+    const projectIds = (projects || []).map(p => p.id)
+    const deployCountMap: Record<string, number> = {}
+
+    if (projectIds.length > 0) {
+      const { data: deploys } = await supabaseAdmin
+        .from('deployments')
+        .select('project_id')
+        .in('project_id', projectIds)
+
+      for (const d of deploys || []) {
+        deployCountMap[d.project_id] = (deployCountMap[d.project_id] || 0) + 1
+      }
+    }
+
+    const result = (projects || []).map(p => ({
+      ...toCamel(p),
+      _count: { deployments: deployCountMap[p.id] || 0 },
+    }))
+
+    return NextResponse.json({ projects: result })
   } catch {
     return NextResponse.json({ error: 'حدث خطأ في جلب المشاريع' }, { status: 500 })
   }
@@ -65,17 +87,24 @@ export async function POST(request: Request) {
       },
     }
 
-    const project = await db.project.create({
-      data: {
+    const { data: project, error } = await supabaseAdmin
+      .from('projects')
+      .insert({
         name,
         template,
         description: `مشروع ${name} من نوع ${template}`,
         files: JSON.stringify(defaultFiles[template] || defaultFiles.static),
-        userId,
-      },
-    })
+        user_id: userId,
+      })
+      .select()
+      .single()
 
-    return NextResponse.json({ project })
+    if (error) {
+      console.error('Create project error:', error)
+      return NextResponse.json({ error: 'حدث خطأ في إنشاء المشروع' }, { status: 500 })
+    }
+
+    return NextResponse.json({ project: toCamel(project) })
   } catch (error) {
     console.error('Create project error:', error)
     return NextResponse.json({ error: 'حدث خطأ في إنشاء المشروع' }, { status: 500 })
@@ -95,15 +124,22 @@ export async function PUT(request: Request) {
     const updateData: Record<string, unknown> = {}
     if (name !== undefined) updateData.name = name
     if (description !== undefined) updateData.description = description
-    if (isPublic !== undefined) updateData.isPublic = isPublic
+    if (isPublic !== undefined) updateData.is_public = isPublic
     if (files !== undefined) updateData.files = files
 
-    const project = await db.project.update({
-      where: { id },
-      data: updateData,
-    })
+    const { data: project, error } = await supabaseAdmin
+      .from('projects')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single()
 
-    return NextResponse.json({ project })
+    if (error) {
+      console.error('Update project error:', error)
+      return NextResponse.json({ error: 'حدث خطأ في تحديث المشروع' }, { status: 500 })
+    }
+
+    return NextResponse.json({ project: toCamel(project) })
   } catch (error) {
     console.error('Update project error:', error)
     return NextResponse.json({ error: 'حدث خطأ في تحديث المشروع' }, { status: 500 })
@@ -120,7 +156,16 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'معرف المشروع مطلوب' }, { status: 400 })
     }
 
-    await db.project.delete({ where: { id } })
+    const { error } = await supabaseAdmin
+      .from('projects')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Delete project error:', error)
+      return NextResponse.json({ error: 'حدث خطأ في حذف المشروع' }, { status: 500 })
+    }
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Delete project error:', error)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { supabaseAdmin } from '@/lib/supabase'
 import bcrypt from 'bcryptjs'
+import { toCamel, stripPassword } from '@/lib/supabase-utils'
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,7 +19,17 @@ export async function POST(request: NextRequest) {
       }
 
       // Check if user already exists
-      const existingUser = await db.user.findUnique({ where: { email } })
+      const { data: existingUser, error: checkError } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle()
+
+      if (checkError) {
+        console.error('Auth check error:', checkError)
+        return NextResponse.json({ error: 'حدث خطأ في الخادم' }, { status: 500 })
+      }
+
       if (existingUser) {
         return NextResponse.json({ error: 'البريد الإلكتروني مستخدم بالفعل' }, { status: 409 })
       }
@@ -27,29 +38,21 @@ export async function POST(request: NextRequest) {
       const hashedPassword = await bcrypt.hash(password, 10)
 
       // Create user
-      const user = await db.user.create({
-        data: {
-          name,
-          email,
-          password: hashedPassword,
-        },
-      })
+      const { data: user, error: insertError } = await supabaseAdmin
+        .from('users')
+        .insert({ email, name, password: hashedPassword })
+        .select()
+        .single()
+
+      if (insertError) {
+        console.error('Auth insert error:', insertError)
+        return NextResponse.json({ error: 'حدث خطأ في إنشاء الحساب' }, { status: 500 })
+      }
+
+      const safeUser = stripPassword(user)
 
       return NextResponse.json({
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-          avatar: user.avatar,
-          bio: user.bio,
-          skills: user.skills,
-          githubUrl: user.githubUrl,
-          isFrozen: user.isFrozen,
-          isOnline: user.isOnline,
-          lastSeen: user.lastSeen?.toISOString() ?? null,
-          createdAt: user.createdAt.toISOString(),
-        },
+        user: toCamel(safeUser),
       })
     }
 
@@ -59,13 +62,18 @@ export async function POST(request: NextRequest) {
       }
 
       // Find user
-      const user = await db.user.findUnique({ where: { email } })
-      if (!user) {
+      const { data: user, error: findError } = await supabaseAdmin
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .single()
+
+      if (findError || !user) {
         return NextResponse.json({ error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' }, { status: 401 })
       }
 
       // Check if frozen
-      if (user.isFrozen) {
+      if (user.is_frozen) {
         return NextResponse.json({ error: 'تم تجميد هذا الحساب، يرجى التواصل مع الدعم' }, { status: 403 })
       }
 
@@ -76,25 +84,23 @@ export async function POST(request: NextRequest) {
       }
 
       // Update online status
-      await db.user.update({
-        where: { id: user.id },
-        data: { isOnline: true, lastSeen: new Date() },
-      })
+      const now = new Date().toISOString()
+      const { error: updateError } = await supabaseAdmin
+        .from('users')
+        .update({ is_online: true, last_seen: now })
+        .eq('id', user.id)
+
+      if (updateError) {
+        console.error('Auth update online error:', updateError)
+      }
+
+      const safeUser = stripPassword(user)
 
       return NextResponse.json({
         user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-          avatar: user.avatar,
-          bio: user.bio,
-          skills: user.skills,
-          githubUrl: user.githubUrl,
-          isFrozen: user.isFrozen,
+          ...toCamel(safeUser),
           isOnline: true,
-          lastSeen: new Date().toISOString(),
-          createdAt: user.createdAt.toISOString(),
+          lastSeen: now,
         },
       })
     }
