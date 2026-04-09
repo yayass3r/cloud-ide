@@ -5,11 +5,15 @@
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-[functions]
-  included_files = ["node_modules/.prisma/**"]
-
+# Required for WebContainers (@webcontainer/api)
 [[headers]]
   for = "/*"
   [headers.values]
     Cross-Origin-Embedder-Policy = "require-corp"
     Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Resource-Policy = "cross-origin"
+
+# Environment variables for Netlify deployment
+[context.production.environment]
+  NEXT_PUBLIC_SUPABASE_URL = "https://uuslujxtsrtbvjihcdzw.supabase.co"
+  NEXT_PUBLIC_SUPABASE_ANON_KEY = "sb_publishable_SD_IG-nqT4E4ohaVDYsNlQ_0aAdmWSu"

@@ -65,3 +65,7 @@ server.log
 
 # Examples
 /examples/
+
+# Local Netlify folder
+.netlify
+.netlify/
