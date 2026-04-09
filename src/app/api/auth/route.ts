@@ -33,7 +33,10 @@ export async function POST(request: NextRequest) {
 
       if (checkError) {
         console.error('Auth check error:', checkError)
-        return NextResponse.json({ error: 'حدث خطأ في الخادم' }, { status: 500 })
+        return NextResponse.json({
+          error: 'حدث خطأ في الخادم',
+          debug: { step: 'check', message: checkError.message, code: checkError.code },
+        }, { status: 500 })
       }
       if (existingUser) {
         return NextResponse.json({ error: 'البريد الإلكتروني مستخدم بالفعل' }, { status: 409 })
@@ -59,7 +62,15 @@ export async function POST(request: NextRequest) {
 
       if (insertError) {
         console.error('Auth insert error:', insertError)
-        return NextResponse.json({ error: 'حدث خطأ في إنشاء الحساب' }, { status: 500 })
+        return NextResponse.json({
+          error: 'حدث خطأ في إنشاء الحساب',
+          debug: {
+            message: insertError.message,
+            code: insertError.code,
+            details: insertError.details,
+            hint: insertError.hint,
+          },
+        }, { status: 500 })
       }
 
       const safeUser = stripPassword(user)
@@ -279,7 +290,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'إجراء غير صالح' }, { status: 400 })
   } catch (error) {
     console.error('Auth POST error:', error)
-    return NextResponse.json({ error: 'حدث خطأ في الخادم' }, { status: 500 })
+    const errMsg = error instanceof Error ? error.message : String(error)
+    return NextResponse.json({ error: 'حدث خطأ في الخادم', debug: { step: 'catch', message: errMsg } }, { status: 500 })
   }
 }
 
