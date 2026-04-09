@@ -13,6 +13,7 @@ import {
   User,
   Bot,
   Loader2,
+  Settings,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -149,9 +150,25 @@ export function AiChatPanel() {
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [selectedModel, setSelectedModel] = useState<ModelOption>('gpt-4o')
+  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null) // null = not checked yet
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Check AI availability on mount
+  useEffect(() => {
+    if (aiChatOpen && aiAvailable === null) {
+      apiFetch('/api/ai', {
+        method: 'POST',
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: 'ping' }],
+        }),
+      })
+        .then(res => res.json())
+        .then(data => setAiAvailable(data.success === true))
+        .catch(() => setAiAvailable(false))
+    }
+  }, [aiChatOpen, aiAvailable, apiFetch])
 
   // Auto-scroll to bottom on new messages
   const scrollToBottom = useCallback(() => {
@@ -205,11 +222,15 @@ export function AiChatPanel() {
           }),
         })
 
-        if (!response.ok) {
-          throw new Error('فشل في الاتصال بالخادم')
+        const data = await response.json()
+
+        if (!response.ok || data.success === false) {
+          const errorMsg = data.error || data.code === 'AI_SERVICE_UNAVAILABLE'
+            ? 'خدمة الذكاء الاصطناعي غير متاحة حالياً. يتم إعدادها لتعمل في بيئة الإنتاج قريباً.'
+            : 'عذراً، حدث خطأ أثناء معالجة طلبك.'
+          throw new Error(errorMsg)
         }
 
-        const data = await response.json()
         const assistantMessage: ChatMessage = {
           id: generateId(),
           role: 'assistant',
@@ -218,11 +239,12 @@ export function AiChatPanel() {
         }
 
         setMessages((prev) => [...prev, assistantMessage])
-      } catch {
+      } catch (err) {
+        const errMessage = err instanceof Error ? err.message : 'عذراً، حدث خطأ أثناء معالجة طلبك. يرجى المحاولة مرة أخرى.'
         const errorMessage: ChatMessage = {
           id: generateId(),
           role: 'assistant',
-          content: 'عذراً، حدث خطأ أثناء معالجة طلبك. يرجى المحاولة مرة أخرى.',
+          content: errMessage,
           timestamp: new Date(),
         }
         setMessages((prev) => [...prev, errorMessage])
@@ -254,6 +276,8 @@ export function AiChatPanel() {
 
   // Empty state
   const isEmpty = messages.length === 0
+  // Show AI unavailable state when we've checked and it's not available
+  const showAiUnavailable = aiAvailable === false && isEmpty
 
   return (
     <AnimatePresence>
@@ -336,7 +360,26 @@ export function AiChatPanel() {
             <div className="flex-1 overflow-hidden">
               <ScrollArea className="h-full">
                 <div className="p-4 flex flex-col gap-4 min-h-full">
-                  {isEmpty ? (
+                  {showAiUnavailable ? (
+                    /* AI Unavailable state */
+                    <div className="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
+                      <div className="flex items-center justify-center size-16 rounded-2xl bg-gradient-to-br from-amber-500/10 to-orange-600/10 border border-amber-500/20 mb-4">
+                        <Settings className="size-8 text-amber-500 animate-pulse" />
+                      </div>
+                      <h3 className="text-base font-bold text-foreground mb-1.5">
+                        المساعد الذكي قيد الإعداد
+                      </h3>
+                      <p className="text-xs text-muted-foreground leading-relaxed max-w-[260px]">
+                        خدمة الذكاء الاصطناعي غير متاحة حالياً في بيئة الإنتاج. يتم إعدادها لتكون جاهزة قريباً.
+                      </p>
+                      <div className="mt-6 px-4 py-3 rounded-xl border border-amber-500/20 bg-amber-500/5 max-w-[280px] w-full">
+                        <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                          💡 يمكن للمسؤول تفعيل الذكاء الاصطناعي عبر إعداد متغيرات البيئة:
+                          <span className="font-mono text-[10px] block mt-1">ZAI_BASE_URL, ZAI_API_KEY</span>
+                        </p>
+                      </div>
+                    </div>
+                  ) : isEmpty ? (
                     /* Empty state */
                     <div className="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
                       <div className="flex items-center justify-center size-16 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-teal-600/10 border border-emerald-500/20 mb-4">
