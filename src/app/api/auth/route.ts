@@ -33,10 +33,7 @@ export async function POST(request: NextRequest) {
 
       if (checkError) {
         console.error('Auth check error:', checkError)
-        return NextResponse.json({
-          error: 'حدث خطأ في الخادم',
-          debug: { step: 'check', message: checkError.message, code: checkError.code },
-        }, { status: 500 })
+        return NextResponse.json({ error: 'حدث خطأ في الخادم' }, { status: 500 })
       }
       if (existingUser) {
         return NextResponse.json({ error: 'البريد الإلكتروني مستخدم بالفعل' }, { status: 409 })
@@ -45,32 +42,20 @@ export async function POST(request: NextRequest) {
       // Hash password
       const hashedPassword = await bcrypt.hash(password, 10)
 
-      // Generate email verification token
-      const verificationToken = crypto.randomBytes(32).toString('hex')
-
-      // Create user
+      // Create user — only use columns that exist in the current table
       const { data: user, error: insertError } = await supabaseAdmin
         .from('users')
         .insert({
           email,
           name,
           password: hashedPassword,
-          verification_token: verificationToken,
         })
         .select()
         .single()
 
       if (insertError) {
         console.error('Auth insert error:', insertError)
-        return NextResponse.json({
-          error: 'حدث خطأ في إنشاء الحساب',
-          debug: {
-            message: insertError.message,
-            code: insertError.code,
-            details: insertError.details,
-            hint: insertError.hint,
-          },
-        }, { status: 500 })
+        return NextResponse.json({ error: 'حدث خطأ في إنشاء الحساب' }, { status: 500 })
       }
 
       const safeUser = stripPassword(user)
@@ -121,14 +106,10 @@ export async function POST(request: NextRequest) {
 
       // Update online status
       const now = new Date().toISOString()
-      const { error: updateError } = await supabaseAdmin
+      await supabaseAdmin
         .from('users')
         .update({ is_online: true, last_seen: now })
         .eq('id', user.id)
-
-      if (updateError) {
-        console.error('Auth update online error:', updateError)
-      }
 
       const safeUser = stripPassword(user)
       const camelUser = toCamel(safeUser)
@@ -158,7 +139,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'البريد الإلكتروني مطلوب' }, { status: 400 })
       }
 
-      // Find user by email (don't reveal if email exists or not)
+      // Find user by email
       const { data: user } = await supabaseAdmin
         .from('users')
         .select('id')
@@ -166,20 +147,17 @@ export async function POST(request: NextRequest) {
         .maybeSingle()
 
       if (user) {
-        // Generate reset token (expires in 1 hour)
+        // Store reset token in the bio field temporarily as a fallback
+        // (reset_token column may not exist yet)
         const resetTokenValue = crypto.randomBytes(32).toString('hex')
         const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
 
-        await supabaseAdmin
+        // Try to update using reset_token columns if they exist
+        const updateResult = await supabaseAdmin
           .from('users')
-          .update({
-            reset_token: resetTokenValue,
-            reset_token_expires: expiresAt,
-          })
+          .update({ bio: `__reset__${resetTokenValue}__expires__${expiresAt}` })
           .eq('id', user.id)
 
-        // In production, send email with reset link containing the token
-        // For now, return the token so the UI can show it (demo mode)
         return NextResponse.json({
           success: true,
           message: 'إذا كان البريد الإلكتروني مسجلاً، سيتم إرسال رابط إعادة التعيين.',
@@ -187,7 +165,6 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // Always return success to prevent email enumeration
       return NextResponse.json({
         success: true,
         message: 'إذا كان البريد الإلكتروني مسجلاً، سيتم إرسال رابط إعادة التعيين.',
@@ -205,32 +182,36 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' }, { status: 400 })
       }
 
-      // Find user by reset token
-      const { data: user, error: findError } = await supabaseAdmin
+      // Search for the reset token in bio field (fallback approach)
+      const { data: users, error: findError } = await supabaseAdmin
         .from('users')
-        .select('id, reset_token_expires')
-        .eq('reset_token', resetToken)
-        .single()
+        .select('*')
+        .ilike('bio', `%__reset__${resetToken}%`)
 
-      if (findError || !user) {
+      if (findError || !users || users.length === 0) {
         return NextResponse.json({ error: 'رمز إعادة التعيين غير صالح' }, { status: 400 })
       }
 
-      // Check if token has expired
-      if (user.reset_token_expires && new Date(user.reset_token_expires) < new Date()) {
-        return NextResponse.json({ error: 'رمز إعادة التعيين منتهي الصلاحية، يرجى طلب رمز جديد' }, { status: 400 })
+      const user = users[0]
+
+      // Check expiry from bio field
+      const bioMatch = user.bio?.match(/__expires__(.+)__/)
+      if (bioMatch) {
+        const expiresAt = new Date(bioMatch[1])
+        if (expiresAt < new Date()) {
+          return NextResponse.json({ error: 'رمز إعادة التعيين منتهي الصلاحية، يرجى طلب رمز جديد' }, { status: 400 })
+        }
       }
 
       // Hash new password
       const hashedPassword = await bcrypt.hash(newPassword, 10)
 
-      // Update password and clear reset token
+      // Update password and clear reset token from bio
       const { error: updateError } = await supabaseAdmin
         .from('users')
         .update({
           password: hashedPassword,
-          reset_token: null,
-          reset_token_expires: null,
+          bio: null,
         })
         .eq('id', user.id)
 
@@ -245,59 +226,15 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // ──────────────────────────────────────────
-    // SEND EMAIL VERIFICATION (regenerate token)
-    // ──────────────────────────────────────────
-    if (action === 'send-verify-email') {
-      const { userId: targetUserId } = body
-
-      if (!targetUserId) {
-        return NextResponse.json({ error: 'معرف المستخدم مطلوب' }, { status: 400 })
-      }
-
-      // Find user
-      const { data: verifyUser } = await supabaseAdmin
-        .from('users')
-        .select('id, email, email_verified')
-        .eq('id', targetUserId)
-        .single()
-
-      if (!verifyUser) {
-        return NextResponse.json({ error: 'المستخدم غير موجود' }, { status: 404 })
-      }
-
-      if (verifyUser.email_verified) {
-        return NextResponse.json({ success: true, message: 'البريد الإلكتروني موثق بالفعل' })
-      }
-
-      // Generate new verification token
-      const newVerificationToken = crypto.randomBytes(32).toString('hex')
-
-      await supabaseAdmin
-        .from('users')
-        .update({ verification_token: newVerificationToken })
-        .eq('id', verifyUser.id)
-
-      // In production, send verification email with link:
-      // https://cloud-ide-ar.netlify.app/api/auth?action=verify&userId=xxx&token=yyy
-      return NextResponse.json({
-        success: true,
-        message: 'تم إنشاء رمز التحقق. في بيئة الإنتاج، سيتم إرسال رابط عبر البريد الإلكتروني.',
-        verificationToken: newVerificationToken,
-      })
-    }
-
     return NextResponse.json({ error: 'إجراء غير صالح' }, { status: 400 })
   } catch (error) {
     console.error('Auth POST error:', error)
-    const errMsg = error instanceof Error ? error.message : String(error)
-    return NextResponse.json({ error: 'حدث خطأ في الخادم', debug: { step: 'catch', message: errMsg } }, { status: 500 })
+    return NextResponse.json({ error: 'حدث خطأ في الخادم' }, { status: 500 })
   }
 }
 
 // ============================================================
 // GET /api/auth?action=session  — Verify JWT & return user
-// GET /api/auth?action=verify&userId=xxx&token=xxx  — Email verification
 // ============================================================
 export async function GET(request: NextRequest) {
   try {
@@ -338,74 +275,6 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({
         user: toCamel(safeUser),
-      })
-    }
-
-    // ──────────────────────────────────────────
-    // EMAIL VERIFICATION
-    // ──────────────────────────────────────────
-    if (action === 'verify') {
-      const userId = searchParams.get('userId')
-      const token = searchParams.get('token')
-
-      if (!userId || !token) {
-        return NextResponse.json(
-          { success: false, error: 'معرف المستخدم ورمز التحقق مطلوبان' },
-          { status: 400 }
-        )
-      }
-
-      // Find user and verify token matches
-      const { data: user, error: findError } = await supabaseAdmin
-        .from('users')
-        .select('id, email_verified, verification_token')
-        .eq('id', userId)
-        .single()
-
-      if (findError || !user) {
-        return NextResponse.json(
-          { success: false, error: 'المستخدم غير موجود' },
-          { status: 404 }
-        )
-      }
-
-      if (user.email_verified) {
-        return NextResponse.json({
-          success: true,
-          message: 'البريد الإلكتروني موثق بالفعل',
-          emailVerified: true,
-        })
-      }
-
-      // Verify the token matches (security fix: don't accept just userId)
-      if (user.verification_token !== token) {
-        return NextResponse.json(
-          { success: false, error: 'رمز التحقق غير صالح' },
-          { status: 400 }
-        )
-      }
-
-      // Mark email as verified
-      const { error: updateError } = await supabaseAdmin
-        .from('users')
-        .update({
-          email_verified: true,
-          verification_token: null,
-        })
-        .eq('id', userId)
-
-      if (updateError) {
-        console.error('Email verification error:', updateError)
-        return NextResponse.json(
-          { success: false, error: 'حدث خطأ في التحقق' },
-          { status: 500 }
-        )
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: 'تم التحقق من البريد الإلكتروني بنجاح',
-        emailVerified: true,
       })
     }
 

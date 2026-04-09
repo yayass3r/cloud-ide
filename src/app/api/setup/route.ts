@@ -7,23 +7,23 @@ import { join } from 'path'
 /**
  * POST /api/setup
  *
- * Attempts to verify that the Supabase database has been initialised with
- * the required tables.  If the tables are missing it returns the SQL that
- * must be executed manually in the Supabase SQL Editor (because the REST
- * API cannot create tables).
+ * Verifies the Supabase database is properly initialized:
+ * 1. Checks all tables exist
+ * 2. Adds missing columns
+ * 3. Seeds the default admin user
  *
- * It also seeds the default admin user when it doesn't already exist.
+ * Since the REST API can't run DDL (ALTER TABLE), it returns SQL
+ * that must be executed in the Supabase SQL Editor.
  */
 export async function POST(request: NextRequest) {
   try {
-    // 1. Check if the `users` table already exists by performing a lightweight query
+    // 1. Check if the `users` table exists
     const { error: checkError } = await supabaseAdmin
       .from('users')
       .select('id')
       .limit(1)
 
     if (checkError) {
-      // Table likely doesn't exist – return SQL for manual execution
       let sql = ''
       try {
         sql = readFileSync(
@@ -31,19 +31,15 @@ export async function POST(request: NextRequest) {
           'utf-8'
         )
       } catch {
-        sql = '-- Could not read migration file. Check supabase/migrations/001_initial_schema.sql'
+        sql = '-- Could not read migration file.'
       }
 
-      return NextResponse.json(
-        {
-          success: false,
-          needsSetup: true,
-          message:
-            'The database tables have not been created yet. Please run the SQL below in the Supabase SQL Editor.',
-          sql,
-        },
-        { status: 200 }
-      )
+      return NextResponse.json({
+        success: false,
+        needsSetup: true,
+        message: 'جداول قاعدة البيانات غير موجودة. يرجى تشغيل SQL التالي في محرر SQL في Supabase.',
+        sql,
+      }, { status: 200 })
     }
 
     // 2. Seed the default admin user if it doesn't exist
@@ -61,16 +57,14 @@ export async function POST(request: NextRequest) {
         password: hashedPassword,
         role: 'admin',
         bio: 'مدير النظام الرئيسي',
-        avatar:
-          'https://api.dicebear.com/7.x/initials/svg?seed=AD&backgroundColor=059669',
+        avatar: 'https://api.dicebear.com/7.x/initials/svg?seed=AD&backgroundColor=059669',
       })
-
       if (seedError) {
         console.error('Seed admin error:', seedError)
       }
     }
 
-    // 3. Verify all required tables are accessible
+    // 3. Verify all required tables exist
     const tableChecks = await Promise.all([
       supabaseAdmin.from('users').select('id').limit(1),
       supabaseAdmin.from('projects').select('id').limit(1),
@@ -96,38 +90,63 @@ export async function POST(request: NextRequest) {
         sql = '-- Could not read migration file'
       }
 
-      return NextResponse.json(
-        {
-          success: false,
-          needsSetup: true,
-          message: `Missing tables: ${missingTables.join(', ')}. Please run the SQL in the Supabase SQL Editor.`,
-          sql,
-        },
-        { status: 200 }
-      )
+      return NextResponse.json({
+        success: false,
+        needsSetup: true,
+        message: `جداول مفقودة: ${missingTables.join(', ')}. يرجى تشغيل SQL في محرر Supabase.`,
+        sql,
+      }, { status: 200 })
+    }
+
+    // 4. Check for missing columns by trying to select them
+    const columnChecks = await Promise.all([
+      supabaseAdmin.from('users').select('email_verified').limit(1),
+      supabaseAdmin.from('users').select('verification_token').limit(1),
+      supabaseAdmin.from('users').select('reset_token').limit(1),
+      supabaseAdmin.from('users').select('reset_token_expires').limit(1),
+    ])
+
+    const missingColumns = [
+      { name: 'email_verified', sql: 'email_verified BOOLEAN NOT NULL DEFAULT false' },
+      { name: 'verification_token', sql: 'verification_token TEXT' },
+      { name: 'reset_token', sql: 'reset_token TEXT' },
+      { name: 'reset_token_expires', sql: 'reset_token_expires TIMESTAMPTZ' },
+    ].filter((col, i) => columnChecks[i].error !== null)
+
+    if (missingColumns.length > 0) {
+      const alterSql = missingColumns
+        .map((col) => `ALTER TABLE users ADD COLUMN IF NOT EXISTS ${col.sql};`)
+        .join('\n')
+
+      const fullSql = `-- أضف الأعمدة المفقودة لجدول users\n${alterSql}\n\n-- إنشاء فهرس لعمود reset_token\nCREATE INDEX IF NOT EXISTS idx_users_reset_token ON users(reset_token) WHERE reset_token IS NOT NULL;\n`
+
+      return NextResponse.json({
+        success: true,
+        needsSetup: false,
+        missingColumns: missingColumns.map((c) => c.name),
+        message: 'قاعدة البيانات تعمل لكن هناك أعمدة مفقودة. يرجى تشغيل SQL التالي في محرر SQL في Supabase لتحسين الوظائف.',
+        sql: fullSql,
+      }, { status: 200 })
     }
 
     return NextResponse.json({
       success: true,
       needsSetup: false,
-      message: 'Database is already set up and ready.',
+      message: 'قاعدة البيانات جاهزة بالكامل.',
     })
   } catch (error) {
     console.error('Setup error:', error)
-    return NextResponse.json(
-      {
-        success: false,
-        needsSetup: true,
-        error: 'An unexpected error occurred during setup.',
-      },
-      { status: 500 }
-    )
+    return NextResponse.json({
+      success: false,
+      needsSetup: true,
+      error: 'حدث خطأ غير متوقع أثناء الإعداد.',
+    }, { status: 500 })
   }
 }
 
 /**
  * GET /api/setup
- * Quick health-check – returns whether tables appear to be available.
+ * Quick health-check
  */
 export async function GET() {
   try {
