@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  password      String
+  avatar        String?
+  bio           String?
+  role          String    @default("user") // "user" or "admin"
+  skills        String    @default("[]")   // JSON array
+  githubUrl     String?
+  isFrozen      Boolean   @default(false)
+  isOnline      Boolean   @default(false)
+  lastSeen      DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  projects      Project[]
+  deployments   Deployment[]
+}
+
+model Project {
+  id            String    @id @default(cuid())
+  userId        String
+  name          String
+  description   String?
+  template      String    @default("node") // "node", "react", "python", "static"
+  files         String    @default("{}")   // JSON: { "path": "content" }
+  isPublic      Boolean   @default(false)  // Portfolio mode
+  isDeployed    Boolean   @default(false)
+  deployUrl     String?
+  previewUrl    String?
+  status        String    @default("active") // "active", "archived", "frozen"
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deployments   Deployment[]
+}
+
+model Deployment {
+  id            String    @id @default(cuid())
+  projectId     String
+  userId        String
+  url           String?
+  status        String    @default("pending") // "pending", "building", "deployed", "failed"
+  logs          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AiChatMessage {
+  id            String    @id @default(cuid())
+  userId        String
+  projectId     String?
+  role          String    // "user" or "assistant"
+  content       String
+  createdAt     DateTime  @default(now())
+}
