@@ -9,14 +9,63 @@ import { join } from 'path'
  *
  * Verifies the Supabase database is properly initialized:
  * 1. Checks all tables exist
- * 2. Adds missing columns
- * 3. Seeds the default admin user
- *
- * Since the REST API can't run DDL (ALTER TABLE), it returns SQL
- * that must be executed in the Supabase SQL Editor.
+ * 2. Seeds the default admin user
+ * 3. Returns SQL for missing columns (must be run manually in Supabase SQL Editor)
  */
 export async function POST(request: NextRequest) {
   try {
+    const body = await request.json().catch(() => ({}))
+    const { action } = body
+
+    // ──────────────────────────────────────────
+    // ACTION: seed-admin
+    // Seeds the default admin user
+    // ──────────────────────────────────────────
+    if (action === 'seed-admin') {
+      const hashedPassword = await bcrypt.hash('admin123', 10)
+      const { data: existingAdmin, error: findErr } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('email', 'admin@cloudide.com')
+        .maybeSingle()
+
+      if (findErr) {
+        return NextResponse.json({ error: findErr.message }, { status: 500 })
+      }
+
+      if (existingAdmin) {
+        return NextResponse.json({
+          success: true,
+          message: 'حساب المسؤول موجود بالفعل',
+          adminId: existingAdmin.id,
+        })
+      }
+
+      const { data: newAdmin, error: seedError } = await supabaseAdmin.from('users').insert({
+        email: 'admin@cloudide.com',
+        name: 'مدير النظام',
+        password: hashedPassword,
+        role: 'admin',
+        bio: 'مدير النظام الرئيسي',
+        avatar: 'https://api.dicebear.com/7.x/initials/svg?seed=AD&backgroundColor=059669',
+      }).select().single()
+
+      if (seedError) {
+        return NextResponse.json({ error: seedError.message }, { status: 500 })
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'تم إنشاء حساب المسؤول بنجاح',
+        adminId: newAdmin.id,
+        credentials: { email: 'admin@cloudide.com', password: 'admin123' },
+      })
+    }
+
+    // ──────────────────────────────────────────
+    // DEFAULT ACTION: Full database health check
+    // ──────────────────────────────────────────
+
     // 1. Check if the `users` table exists
     const { error: checkError } = await supabaseAdmin
       .from('users')

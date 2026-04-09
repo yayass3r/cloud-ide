@@ -28,12 +28,15 @@ export async function POST(request: NextRequest) {
       const { data: existingUser, error: checkError } = await supabaseAdmin
         .from('users')
         .select('id')
-        .eq('email', email)
+        .eq('email', email.toLowerCase().trim())
         .maybeSingle()
 
       if (checkError) {
-        console.error('Auth check error:', checkError)
-        return NextResponse.json({ error: 'حدث خطأ في الخادم' }, { status: 500 })
+        console.error('Auth check user error:', checkError.message, checkError.code, checkError.hint)
+        return NextResponse.json({
+          error: 'حدث خطأ في الخادم',
+          debug: checkError.message,
+        }, { status: 500 })
       }
       if (existingUser) {
         return NextResponse.json({ error: 'البريد الإلكتروني مستخدم بالفعل' }, { status: 409 })
@@ -43,19 +46,25 @@ export async function POST(request: NextRequest) {
       const hashedPassword = await bcrypt.hash(password, 10)
 
       // Create user — only use columns that exist in the current table
+      const insertData: Record<string, string> = {
+        email: email.toLowerCase().trim(),
+        name: name.trim(),
+        password: hashedPassword,
+      }
+
       const { data: user, error: insertError } = await supabaseAdmin
         .from('users')
-        .insert({
-          email,
-          name,
-          password: hashedPassword,
-        })
+        .insert(insertData)
         .select()
         .single()
 
       if (insertError) {
-        console.error('Auth insert error:', insertError)
-        return NextResponse.json({ error: 'حدث خطأ في إنشاء الحساب' }, { status: 500 })
+        console.error('Auth insert error:', insertError.message, 'Code:', insertError.code, 'Details:', insertError.details, 'Hint:', insertError.hint)
+        return NextResponse.json({
+          error: 'حدث خطأ في إنشاء الحساب',
+          debug: insertError.message,
+          code: insertError.code,
+        }, { status: 500 })
       }
 
       const safeUser = stripPassword(user)
@@ -86,7 +95,7 @@ export async function POST(request: NextRequest) {
       const { data: user, error: findError } = await supabaseAdmin
         .from('users')
         .select('*')
-        .eq('email', email)
+        .eq('email', email.toLowerCase().trim())
         .single()
 
       if (findError || !user) {
@@ -143,20 +152,37 @@ export async function POST(request: NextRequest) {
       const { data: user } = await supabaseAdmin
         .from('users')
         .select('id')
-        .eq('email', email)
+        .eq('email', email.toLowerCase().trim())
         .maybeSingle()
 
       if (user) {
-        // Store reset token in the bio field temporarily as a fallback
-        // (reset_token column may not exist yet)
         const resetTokenValue = crypto.randomBytes(32).toString('hex')
         const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
 
-        // Try to update using reset_token columns if they exist
-        const updateResult = await supabaseAdmin
-          .from('users')
-          .update({ bio: `__reset__${resetTokenValue}__expires__${expiresAt}` })
-          .eq('id', user.id)
+        // Try to use reset_token column if it exists
+        try {
+          const { error } = await supabaseAdmin
+            .from('users')
+            .update({
+              reset_token: resetTokenValue,
+              reset_token_expires: expiresAt,
+            })
+            .eq('id', user.id)
+
+          if (error && error.message.includes('does not exist')) {
+            // Fallback: store in bio field
+            await supabaseAdmin
+              .from('users')
+              .update({ bio: `__reset__${resetTokenValue}__expires__${expiresAt}` })
+              .eq('id', user.id)
+          }
+        } catch {
+          // Fallback: store in bio field
+          await supabaseAdmin
+            .from('users')
+            .update({ bio: `__reset__${resetTokenValue}__expires__${expiresAt}` })
+            .eq('id', user.id)
+        }
 
         return NextResponse.json({
           success: true,
@@ -182,37 +208,62 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' }, { status: 400 })
       }
 
-      // Search for the reset token in bio field (fallback approach)
-      const { data: users, error: findError } = await supabaseAdmin
+      // Try reset_token column first
+      const { data: tokenUser, error: tokenError } = await supabaseAdmin
         .from('users')
         .select('*')
-        .ilike('bio', `%__reset__${resetToken}%`)
+        .eq('reset_token', resetToken)
+        .maybeSingle()
 
-      if (findError || !users || users.length === 0) {
+      let user = tokenUser
+
+      // Fallback: search in bio field
+      if (!user || tokenError) {
+        const { data: bioUsers } = await supabaseAdmin
+          .from('users')
+          .select('*')
+          .ilike('bio', `%__reset__${resetToken}%`)
+
+        if (bioUsers && bioUsers.length > 0) {
+          user = bioUsers[0]
+        }
+      }
+
+      if (!user) {
         return NextResponse.json({ error: 'رمز إعادة التعيين غير صالح' }, { status: 400 })
       }
 
-      const user = users[0]
-
-      // Check expiry from bio field
-      const bioMatch = user.bio?.match(/__expires__(.+)__/)
-      if (bioMatch) {
-        const expiresAt = new Date(bioMatch[1])
+      // Check expiry
+      if (user.reset_token_expires) {
+        const expiresAt = new Date(user.reset_token_expires)
         if (expiresAt < new Date()) {
           return NextResponse.json({ error: 'رمز إعادة التعيين منتهي الصلاحية، يرجى طلب رمز جديد' }, { status: 400 })
+        }
+      } else {
+        // Check expiry from bio field
+        const bioMatch = user.bio?.match(/__expires__(.+)__/)
+        if (bioMatch) {
+          const expiresAt = new Date(bioMatch[1])
+          if (expiresAt < new Date()) {
+            return NextResponse.json({ error: 'رمز إعادة التعيين منتهي الصلاحية، يرجى طلب رمز جديد' }, { status: 400 })
+          }
         }
       }
 
       // Hash new password
       const hashedPassword = await bcrypt.hash(newPassword, 10)
 
-      // Update password and clear reset token from bio
+      // Update password and clear reset token
+      const updateData: Record<string, unknown> = {
+        password: hashedPassword,
+        reset_token: null,
+        reset_token_expires: null,
+        bio: null,
+      }
+
       const { error: updateError } = await supabaseAdmin
         .from('users')
-        .update({
-          password: hashedPassword,
-          bio: null,
-        })
+        .update(updateData)
         .eq('id', user.id)
 
       if (updateError) {
@@ -229,7 +280,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'إجراء غير صالح' }, { status: 400 })
   } catch (error) {
     console.error('Auth POST error:', error)
-    return NextResponse.json({ error: 'حدث خطأ في الخادم' }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'حدث خطأ غير متوقع'
+    return NextResponse.json({ error: 'حدث خطأ في الخادم', debug: message }, { status: 500 })
   }
 }
 
