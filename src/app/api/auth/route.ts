@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         user: toCamel(safeUser),
+        token: user.id,
       })
     }
 
@@ -106,6 +107,7 @@ export async function POST(request: NextRequest) {
           isOnline: true,
           lastSeen: now,
         },
+        token: user.id,
       })
     }
 

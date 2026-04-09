@@ -1,7 +1,12 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { verifyAdminAccess } from '@/lib/verify-admin'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // 🔒 Admin-only endpoint
+  const authResult = await verifyAdminAccess(request)
+  if (!authResult.authorized) return authResult.response
+
   try {
     const { count: totalUsers, error: usersError } = await supabaseAdmin
       .from('users')

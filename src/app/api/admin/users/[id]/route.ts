@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { toCamel, stripPassword, toSnake } from '@/lib/supabase-utils'
+import { verifyAdminAccess } from '@/lib/verify-admin'
+import { toCamel, stripPassword } from '@/lib/supabase-utils'
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  // 🔒 Admin-only endpoint
+  const authResult = await verifyAdminAccess(request)
+  if (!authResult.authorized) return authResult.response
+
   try {
     const { id } = await params
     const body = await request.json()
@@ -20,7 +25,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
     // If no known fields matched, try generic conversion for any other fields
     if (Object.keys(updateData).length === 0) {
-      const snakeBody = toSnake(body)
+      const snakeBody: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(body)) {
+        const snakeKey = key.replace(/[A-Z]/g, c => '_' + c.toLowerCase())
+        snakeBody[snakeKey] = value
+      }
       Object.assign(updateData, snakeBody)
     }
 
