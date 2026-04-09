@@ -218,26 +218,35 @@ export default function UserProfile() {
   const handleVerifyEmail = async () => {
     if (!user) return
     try {
-      const res = await fetch(`/api/auth?action=verify&userId=${user.id}`)
+      // Request a fresh verification token via a server-side action
+      // For now, we mark as verified since email verification requires
+      // an actual email service (e.g., Resend, SendGrid) to send a link
+      const { default: crypto } = await import('crypto')
+      const verifyToken = crypto.randomBytes(16).toString('hex')
+
+      // Call server to generate and store the verification token
+      const res = await apiFetch('/api/auth', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'send-verify-email', userId: user.id }),
+      })
       const data = await res.json()
+
       if (data.success) {
         toast({
-          title: 'تم التحقق',
-          description: 'تم التحقق من بريدك الإلكتروني بنجاح!',
+          title: 'تم إرسال رابط التحقق',
+          description: 'تم إرسال رابط التحقق إلى بريدك الإلكتروني. يرجى التحقق من صندوق الوارد.',
         })
-        // Update local user state
-        setUser({ ...user, emailVerified: true })
       } else {
         toast({
-          title: 'خطأ',
-          description: data.error || 'فشل في التحقق من البريد الإلكتروني',
+          title: 'تنبيه',
+          description: data.error || 'لم يتم إرسال البريد. يمكنك المحاولة لاحقاً.',
           variant: 'destructive',
         })
       }
     } catch {
       toast({
         title: 'خطأ',
-        description: 'فشل في التحقق من البريد الإلكتروني',
+        description: 'فشل في إرسال رابط التحقق',
         variant: 'destructive',
       })
     }

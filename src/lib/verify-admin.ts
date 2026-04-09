@@ -1,39 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { verifyToken, getTokenFromHeader } from '@/lib/auth'
 
 /**
- * Extract user ID from request and verify admin role.
- * Checks Authorization header, query params, and request body.
+ * Verify admin access using JWT token.
+ * Extracts the Bearer token from the Authorization header,
+ * verifies it, and checks that the user has the 'admin' role.
+ *
+ * Security: Only accepts JWT from the Authorization header.
+ * No fallbacks to body/query params (prevents token injection).
  */
 export async function verifyAdminAccess(
   request: NextRequest
 ): Promise<{ authorized: true; userId: string } | { authorized: false; response: NextResponse }> {
-  let userId: string | null = null
+  // ONLY accept token from Authorization header (no body/query fallbacks)
+  const token = getTokenFromHeader(request)
 
-  // 1. Check Authorization: Bearer <userId> header
-  const authHeader = request.headers.get('authorization')
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    userId = authHeader.replace('Bearer ', '')
-  }
-
-  // 2. For non-GET requests, also check body for userId
-  if (!userId && request.method !== 'GET') {
-    try {
-      const cloned = request.clone()
-      const body = await cloned.json()
-      userId = body.userId || null
-    } catch {
-      // Ignore parse errors
-    }
-  }
-
-  // 3. For GET requests, check query params
-  if (!userId) {
-    const { searchParams } = new URL(request.url)
-    userId = searchParams.get('userId')
-  }
-
-  if (!userId) {
+  if (!token) {
     return {
       authorized: false,
       response: NextResponse.json(
@@ -43,14 +25,20 @@ export async function verifyAdminAccess(
     }
   }
 
-  // Verify user exists and has admin role
-  const { data: adminUser, error } = await supabaseAdmin
-    .from('users')
-    .select('id, role')
-    .eq('id', userId)
-    .single()
+  // Verify JWT and extract payload
+  const payload = await verifyToken(token)
+  if (!payload) {
+    return {
+      authorized: false,
+      response: NextResponse.json(
+        { success: false, error: 'رمز المصادقة غير صالح أو منتهي الصلاحية' },
+        { status: 401 }
+      ),
+    }
+  }
 
-  if (error || !adminUser || adminUser.role !== 'admin') {
+  // Check admin role
+  if (payload.role !== 'admin') {
     return {
       authorized: false,
       response: NextResponse.json(
@@ -60,5 +48,5 @@ export async function verifyAdminAccess(
     }
   }
 
-  return { authorized: true, userId }
+  return { authorized: true, userId: payload.userId }
 }

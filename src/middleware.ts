@@ -6,15 +6,18 @@ import { verifyToken, getTokenFromHeader } from '@/lib/auth'
  *
  * Protected routes:
  * - /api/admin/* — requires JWT with role === 'admin'
- * - /api/projects (PUT/DELETE) — requires JWT with ownership (middleware just verifies token; ownership is checked in the route handler)
- * - /api/ai (POST) — requires JWT
+ * - PUT/DELETE /api/projects — requires JWT with ownership
+ * - POST /api/projects — requires JWT (create on behalf of user)
+ * - POST /api/ai — requires JWT
  */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Only intercept API routes that need protection
   const isAdminRoute = pathname.startsWith('/api/admin/')
-  const isProjectsMutate = pathname === '/api/projects' && ['PUT', 'DELETE'].includes(request.method)
+  const isProjectsMutate =
+    pathname === '/api/projects' &&
+    ['PUT', 'DELETE', 'POST'].includes(request.method)
   const isAiPost = pathname === '/api/ai' && request.method === 'POST'
 
   if (!isAdminRoute && !isProjectsMutate && !isAiPost) {

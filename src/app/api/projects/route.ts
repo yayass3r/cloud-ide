@@ -1,21 +1,33 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { toCamel } from '@/lib/supabase-utils'
+import { toCamel, stripPassword } from '@/lib/supabase-utils'
 
-// GET /api/projects - List projects by userId
-export async function GET(request: Request) {
+/**
+ * Helper: extract userId from the x-user-id header injected by middleware.
+ * Falls back to query/body only for GET (public read) operations.
+ */
+function getUserId(request: Request): string | null {
+  return request.headers.get('x-user-id')
+}
+
+// GET /api/projects — List projects for the authenticated user
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get('userId')
+    const userId = getUserId(request)
 
-    if (!userId) {
+    // Also check query param for backward compatibility during session load
+    const { searchParams } = new URL(request.url)
+    const queryUserId = searchParams.get('userId')
+    const effectiveUserId = userId || queryUserId
+
+    if (!effectiveUserId) {
       return NextResponse.json({ error: 'معرف المستخدم مطلوب' }, { status: 400 })
     }
 
     const { data: projects, error } = await supabaseAdmin
       .from('projects')
       .select('*')
-      .eq('user_id', userId)
+      .eq('user_id', effectiveUserId)
       .order('updated_at', { ascending: false })
 
     if (error) {
@@ -24,7 +36,7 @@ export async function GET(request: Request) {
     }
 
     // Get deployment counts for all user's projects
-    const projectIds = (projects || []).map(p => p.id)
+    const projectIds = (projects || []).map((p) => p.id)
     const deployCountMap: Record<string, number> = {}
 
     if (projectIds.length > 0) {
@@ -38,7 +50,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const result = (projects || []).map(p => ({
+    const result = (projects || []).map((p) => ({
       ...toCamel(p),
       _count: { deployments: deployCountMap[p.id] || 0 },
     }))
@@ -49,18 +61,20 @@ export async function GET(request: Request) {
   }
 }
 
-// POST /api/projects - Create project
-export async function POST(request: Request) {
+// POST /api/projects — Create project for the authenticated user
+export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { name, template = 'static', userId } = body
-
-    if (!name) {
-      return NextResponse.json({ error: 'اسم المشروع مطلوب' }, { status: 400 })
-    }
+    const userId = getUserId(request)
 
     if (!userId) {
       return NextResponse.json({ error: 'يجب تسجيل الدخول أولاً' }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const { name, template = 'static' } = body
+
+    if (!name) {
+      return NextResponse.json({ error: 'اسم المشروع مطلوب' }, { status: 400 })
     }
 
     // Default files based on template
@@ -111,17 +125,19 @@ export async function POST(request: Request) {
   }
 }
 
-// PUT /api/projects - Update project
-export async function PUT(request: Request) {
+// PUT /api/projects — Update project (middleware ensures auth)
+export async function PUT(request: NextRequest) {
   try {
+    const userId = getUserId(request)
+
     const body = await request.json()
-    const { id, name, description, isPublic, files, userId } = body
+    const { id, name, description, isPublic, files } = body
 
     if (!id) {
       return NextResponse.json({ error: 'معرف المشروع مطلوب' }, { status: 400 })
     }
 
-    // Verify ownership
+    // Verify ownership using x-user-id from middleware
     if (userId) {
       const { data: existingProject } = await supabaseAdmin
         .from('projects')
@@ -159,18 +175,19 @@ export async function PUT(request: Request) {
   }
 }
 
-// DELETE /api/projects - Delete project
-export async function DELETE(request: Request) {
+// DELETE /api/projects — Delete project (middleware ensures auth)
+export async function DELETE(request: NextRequest) {
   try {
+    const userId = getUserId(request)
+
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
-    const userId = searchParams.get('userId')
 
     if (!id) {
       return NextResponse.json({ error: 'معرف المشروع مطلوب' }, { status: 400 })
     }
 
-    // Verify ownership
+    // Verify ownership using x-user-id from middleware
     if (userId) {
       const { data: existingProject } = await supabaseAdmin
         .from('projects')

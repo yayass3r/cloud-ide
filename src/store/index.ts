@@ -112,6 +112,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ user });
     if (user) {
       saveToStorage(STORAGE_KEY_USER, JSON.stringify(user));
+    } else {
+      // Clear localStorage when user is set to null
+      saveToStorage(STORAGE_KEY_USER, null);
     }
   },
 

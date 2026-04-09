@@ -18,7 +18,7 @@ import { AiChatPanel } from '@/components/chat/AiChatPanel'
 import SetupWizard from '@/components/SetupWizard'
 
 export default function Home() {
-  const { currentView, user, setUser } = useAppStore()
+  const { currentView, user, setUser, logout } = useAppStore()
   const [dbReady, setDbReady] = useState<boolean | null>(null) // null = checking
 
   // Check database setup status on mount
@@ -36,46 +36,46 @@ export default function Home() {
     checkDb()
   }, [])
 
-  // Restore user session from localStorage (including token)
+  // Restore user session from localStorage and verify JWT with server
   useEffect(() => {
     if (!user && dbReady === true) {
+      // Hydrate Zustand from localStorage first (instant UI restore)
       initAuthFromStorage()
 
-      // Verify the stored token is still valid
-      const storedToken = typeof window !== 'undefined' ? localStorage.getItem('codeStudio_token') : null
-      const storedUser = typeof window !== 'undefined' ? localStorage.getItem('codeStudio_user') : null
+      // Then verify the JWT token with the server
+      const storedToken = typeof window !== 'undefined'
+        ? localStorage.getItem('codeStudio_token')
+        : null
 
-      if (storedUser && storedToken) {
-        // Verify token with server
-        fetch('/api/auth', {
+      if (storedToken) {
+        // Call the session endpoint which verifies the JWT and returns fresh user data
+        fetch('/api/auth?action=session', {
           headers: { Authorization: `Bearer ${storedToken}` },
         })
           .then((res) => {
             if (res.ok) return res.json()
-            // Token invalid — clear everything
-            localStorage.removeItem('codeStudio_user')
-            localStorage.removeItem('codeStudio_token')
+            // Token invalid or expired — clear session completely
             return null
           })
           .then((data) => {
             if (data && data.user) {
+              // JWT is valid — update with fresh user data from DB
               setUser(data.user)
+            } else {
+              // JWT invalid — full logout
+              logout()
             }
           })
           .catch(() => {
-            // On network error, still try to use cached user
-            try {
-              setUser(JSON.parse(storedUser))
-            } catch {
-              // ignore
-            }
+            // Network error: keep cached session (user was already hydrated by initAuthFromStorage)
+            // The cached data is a reasonable fallback when offline
           })
-      } else if (storedUser) {
-        // No token but have user — clear user (need re-login)
-        localStorage.removeItem('codeStudio_user')
+      } else {
+        // No token at all — ensure clean state
+        logout()
       }
     }
-  }, [user, setUser, dbReady])
+  }, [user, setUser, logout, dbReady])
 
   const pageVariants = {
     initial: { opacity: 0, y: 8 },
