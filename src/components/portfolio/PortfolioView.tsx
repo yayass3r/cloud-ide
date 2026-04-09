@@ -7,14 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { useAppStore, type Project } from '@/store'
+import { useAppStore, type PublicProject } from '@/store'
 import PortfolioCard from './PortfolioCard'
 
 const templateFilters = [
@@ -27,7 +20,7 @@ const templateFilters = [
 
 export default function PortfolioView() {
   const { user, navigate, selectProject } = useAppStore()
-  const [projects, setProjects] = useState<Project[]>([])
+  const [projects, setProjects] = useState<PublicProject[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
 
@@ -51,12 +44,12 @@ export default function PortfolioView() {
       ? projects
       : projects.filter((p) => p.template === filter)
 
-  const handleOpenIde = (project: Project) => {
+  const handleOpenIde = (project: PublicProject) => {
     selectProject(project)
     navigate('ide')
   }
 
-  const handleView = (project: Project) => {
+  const handleView = (project: PublicProject) => {
     if (project.deployUrl) {
       window.open(project.deployUrl, '_blank')
     } else {

@@ -116,10 +116,27 @@ export default function IDEView() {
     setActiveFilePath(path)
   }, [])
 
-  const handleSave = useCallback((path: string, content: string) => {
-    // Simulate save - could add toast notification
+  const handleSave = useCallback(async (path: string, content: string) => {
+    // Update local state immediately
     setFileContents((prev) => ({ ...prev, [path]: content }))
-  }, [])
+
+    // Persist to database
+    if (!currentProject) return
+    try {
+      const updatedFiles = { ...fileContents, [path]: content }
+      await fetch('/api/projects', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: currentProject.id,
+          userId: currentProject.userId,
+          files: JSON.stringify(updatedFiles),
+        }),
+      })
+    } catch {
+      // Silently handle save errors
+    }
+  }, [currentProject, fileContents])
 
   const handleRun = useCallback(() => {
     setIsRunning(true)

@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Eye, EyeOff, UserPlus, Loader2, AlertCircle } from 'lucide-react'
 
 export default function RegisterForm() {
-  const { navigate } = useAppStore()
+  const { navigate, setUser } = useAppStore()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -56,7 +56,15 @@ export default function RegisterForm() {
         return
       }
 
-      navigate('login')
+      // Auto-login after successful registration
+      const registeredUser = data.user
+      if (registeredUser) {
+        setUser(registeredUser)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('codeStudio_user', JSON.stringify(registeredUser))
+        }
+      }
+      navigate('dashboard')
     } catch {
       setError('تعذر الاتصال بالخادم، يرجى المحاولة مرة أخرى')
     } finally {

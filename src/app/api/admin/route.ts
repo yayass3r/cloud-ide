@@ -2,8 +2,66 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { toCamel, stripPassword } from '@/lib/supabase-utils'
 
+// Helper: verify admin access from request
+async function verifyAdminAccess(request: NextRequest): Promise<{ authorized: true; userId: string } | { authorized: false; response: NextResponse }> {
+  const authHeader = request.headers.get('authorization')
+  let userId: string | null = null
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    userId = authHeader.replace('Bearer ', '')
+  }
+
+  // For non-GET requests, also check body for userId
+  if (!userId && request.method !== 'GET') {
+    try {
+      const cloned = request.clone()
+      const body = await cloned.json()
+      userId = body.userId || null
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // For GET requests, check query params
+  if (!userId) {
+    const { searchParams } = new URL(request.url)
+    userId = searchParams.get('userId')
+  }
+
+  if (!userId) {
+    return {
+      authorized: false,
+      response: NextResponse.json(
+        { success: false, error: 'المصادقة مطلوبة' },
+        { status: 401 }
+      ),
+    }
+  }
+
+  const { data: adminUser, error } = await supabaseAdmin
+    .from('users')
+    .select('id, role')
+    .eq('id', userId)
+    .single()
+
+  if (error || !adminUser || adminUser.role !== 'admin') {
+    return {
+      authorized: false,
+      response: NextResponse.json(
+        { success: false, error: 'ليس لديك صلاحية الوصول' },
+        { status: 403 }
+      ),
+    }
+  }
+
+  return { authorized: true, userId }
+}
+
 // GET /api/admin — List users or get stats
 export async function GET(request: NextRequest) {
+  const authResult = await verifyAdminAccess(request)
+  if (!authResult.authorized) return authResult.response
+
   try {
     const { searchParams } = new URL(request.url)
     const action = searchParams.get('action')
@@ -141,6 +199,9 @@ export async function GET(request: NextRequest) {
 
 // PUT /api/admin — Update user (role, freeze status)
 export async function PUT(request: NextRequest) {
+  const authResult = await verifyAdminAccess(request)
+  if (!authResult.authorized) return authResult.response
+
   try {
     const body = await request.json()
     const { id, role, isFrozen } = body

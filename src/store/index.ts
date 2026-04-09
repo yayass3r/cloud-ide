@@ -23,7 +23,7 @@ export interface Project {
   name: string;
   description?: string | null;
   template: string;
-  files: string;
+  files: Record<string, string>;
   isPublic: boolean;
   isDeployed: boolean;
   deployUrl?: string | null;
@@ -31,6 +31,11 @@ export interface Project {
   status: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PublicProject extends Project {
+  user: { id: string; name: string; avatar: string | null } | null;
+  _count?: { deployments: number };
 }
 
 interface AppState {
@@ -42,6 +47,7 @@ interface AppState {
 
   // Project
   currentProject: Project | null;
+  projects: Project[];
 
   // UI
   sidebarOpen: boolean;
@@ -55,6 +61,7 @@ interface AppState {
   setUser: (user: User | null) => void;
   logout: () => void;
   selectProject: (project: Project | null) => void;
+  setProjects: (projects: Project[]) => void;
   toggleSidebar: () => void;
   toggleAiChat: () => void;
   setTheme: (theme: 'light' | 'dark') => void;
@@ -65,6 +72,7 @@ export const useAppStore = create<AppState>((set) => ({
   currentView: 'landing',
   user: null,
   currentProject: null,
+  projects: [],
   sidebarOpen: true,
   aiChatOpen: false,
   theme: 'dark',
@@ -78,6 +86,7 @@ export const useAppStore = create<AppState>((set) => ({
     set({
       user: null,
       currentProject: null,
+      projects: [],
       currentView: 'landing',
       sidebarOpen: true,
       aiChatOpen: false,
@@ -88,6 +97,8 @@ export const useAppStore = create<AppState>((set) => ({
   },
 
   selectProject: (project) => set({ currentProject: project }),
+
+  setProjects: (projects) => set({ projects }),
 
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
 

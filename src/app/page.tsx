@@ -16,22 +16,6 @@ import ProjectTemplates from '@/components/ide/ProjectTemplates'
 import { AiChatPanel } from '@/components/chat/AiChatPanel'
 import SetupWizard from '@/components/SetupWizard'
 
-// Mock admin user for demo
-const demoAdmin = {
-  id: 'demo-admin-1',
-  email: 'admin@codestudio.dev',
-  name: 'أحمد المدير',
-  avatar: null,
-  bio: 'مطور ويب متحمس وخبير في هندسة البرمجيات',
-  role: 'admin' as const,
-  skills: '["React","Node.js","TypeScript","Python","Next.js"]',
-  githubUrl: 'https://github.com/ahmed',
-  isFrozen: false,
-  isOnline: true,
-  createdAt: new Date('2024-01-15').toISOString(),
-  updatedAt: new Date('2025-04-10').toISOString(),
-}
-
 export default function Home() {
   const { currentView, user, setUser, aiChatOpen } = useAppStore()
   const [dbReady, setDbReady] = useState<boolean | null>(null) // null = checking
@@ -51,22 +35,15 @@ export default function Home() {
     checkDb()
   }, [])
 
-  // Auto-login with demo user for quick testing
+  // Restore user session from localStorage
   useEffect(() => {
     if (!user && dbReady === true) {
-      // Check localStorage first
       const savedUser = typeof window !== 'undefined' ? localStorage.getItem('codeStudio_user') : null
       if (savedUser) {
         try {
           setUser(JSON.parse(savedUser))
         } catch {
           // Ignore parse errors
-        }
-      } else {
-        // Auto-login with demo user
-        setUser(demoAdmin)
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('codeStudio_user', JSON.stringify(demoAdmin))
         }
       }
     }

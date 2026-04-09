@@ -14,13 +14,13 @@ import {
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import type { Project } from '@/store'
+import type { PublicProject } from '@/store'
 
 interface PortfolioCardProps {
-  project: Project
+  project: PublicProject
   isOwner?: boolean
-  onOpenIde?: (project: Project) => void
-  onView?: (project: Project) => void
+  onOpenIde?: (project: PublicProject) => void
+  onView?: (project: PublicProject) => void
 }
 
 const templateConfig: Record<

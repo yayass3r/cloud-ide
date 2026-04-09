@@ -48,8 +48,8 @@ const statusLabels: Record<string, { label: string; color: string }> = {
 }
 
 export default function UserDashboard() {
-  const { user, navigate, selectProject } = useAppStore()
-  const [projects, setProjects] = useState<Project[]>([])
+  const { user, navigate, selectProject, setProjects } = useAppStore()
+  const [projects, setLocalProjects] = useState<Project[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -68,6 +68,7 @@ export default function UserDashboard() {
         const res = await fetch(`/api/projects?userId=${user.id}`)
         const data = await res.json()
         const projectList: Project[] = data.projects || []
+        setLocalProjects(projectList)
         setProjects(projectList)
 
         const deployments = projectList.reduce(
@@ -107,9 +108,9 @@ export default function UserDashboard() {
       })
       const data = await res.json()
       if (data.project) {
-        setProjects((prev) =>
-          prev.map((p) => (p.id === project.id ? { ...p, isPublic: !p.isPublic } : p))
-        )
+        const updatedList = projects.map((p) => (p.id === project.id ? { ...p, isPublic: !p.isPublic } : p))
+        setLocalProjects(updatedList)
+        setProjects(updatedList)
       }
     } catch (err) {
       console.error('Error toggling project visibility:', err)

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import {
   File,
   Folder,
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { useAppStore } from '@/store'
 
 export interface FileNode {
   name: string
@@ -171,8 +172,94 @@ function FileTreeNode({ node, path, depth, activeFile, onFileSelect, onToggleFol
   )
 }
 
+/** Convert a flat Record<string, string> (filepath → content) into a FileNode tree. */
+function buildFileTree(files: Record<string, string>): FileNode[] {
+  const root: FileNode[] = []
+
+  // Collect all folder paths that appear in file paths
+  const folderPaths = new Set<string>()
+  for (const filePath of Object.keys(files)) {
+    const parts = filePath.split('/')
+    for (let i = 1; i < parts.length; i++) {
+      folderPaths.add(parts.slice(0, i).join('/'))
+    }
+  }
+
+  // Helper: find or create a folder node at the given path within a list
+  function ensureFolder(nodes: FileNode[], folderPath: string): FileNode {
+    const parts = folderPath.split('/')
+    const folderName = parts[parts.length - 1]
+    let existing = nodes.find((n) => n.type === 'folder' && n.name === folderName)
+    if (!existing) {
+      existing = { name: folderName, type: 'folder', children: [] }
+      nodes.push(existing)
+    }
+    return existing
+  }
+
+  // Create folder nodes first (sorted)
+  const sortedFolders = Array.from(folderPaths).sort()
+  for (const fp of sortedFolders) {
+    const parts = fp.split('/')
+    if (parts.length === 1) {
+      // Top-level folder
+      ensureFolder(root, fp)
+    } else {
+      // Nested folder
+      const parentPath = parts.slice(0, -1).join('/')
+      const parentFolders = parentPath.split('/')
+      let currentNodes = root
+      for (const p of parentFolders) {
+        const found = currentNodes.find((n) => n.type === 'folder' && n.name === p)
+        if (found && found.children) {
+          currentNodes = found.children
+        } else {
+          break
+        }
+      }
+      ensureFolder(currentNodes, fp)
+    }
+  }
+
+  // Add file nodes into the correct folders
+  const sortedFiles = Object.keys(files).sort()
+  for (const filePath of sortedFiles) {
+    const parts = filePath.split('/')
+    const fileName = parts[parts.length - 1]
+    const fileNode: FileNode = { name: fileName, type: 'file', content: files[filePath] }
+
+    if (parts.length === 1) {
+      root.push(fileNode)
+    } else {
+      // Walk into the correct folder
+      const folderPath = parts.slice(0, -1).join('/')
+      const folderParts = folderPath.split('/')
+      let currentNodes = root
+      for (const p of folderParts) {
+        const found = currentNodes.find((n) => n.type === 'folder' && n.name === p)
+        if (found && found.children) {
+          currentNodes = found.children
+        } else {
+          break
+        }
+      }
+      currentNodes.push(fileNode)
+    }
+  }
+
+  return root
+}
+
 export default function FileExplorer({ template, onFileSelect, activeFile }: FileExplorerProps) {
-  const files = templateFiles[template] || templateFiles.static
+  const currentProject = useAppStore((s) => s.currentProject)
+
+  const files = useMemo(() => {
+    if (currentProject?.files && Object.keys(currentProject.files).length > 0) {
+      return buildFileTree(currentProject.files)
+    }
+    return templateFiles[template] || templateFiles.static
+  }, [currentProject?.files, template])
+
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set(['src', 'public', 'utils']))
 
   const toggleFolder = (path: string) => {

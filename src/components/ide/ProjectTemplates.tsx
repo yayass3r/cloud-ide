@@ -66,11 +66,11 @@ export default function ProjectTemplates() {
       const res = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, template: templateId }),
+        body: JSON.stringify({ name, template: templateId, userId: user.id }),
       })
       if (res.ok) {
-        const project = await res.json()
-        selectProject(project)
+        const data = await res.json()
+        selectProject(data.project)
       }
     } catch {
       // Silently handle

@@ -142,6 +142,7 @@ export function AiChatPanel() {
   const aiChatOpen = useAppStore((s) => s.aiChatOpen)
   const toggleAiChat = useAppStore((s) => s.toggleAiChat)
   const currentProject = useAppStore((s) => s.currentProject)
+  const user = useAppStore((s) => s.user)
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputValue, setInputValue] = useState('')
@@ -199,6 +200,8 @@ export function AiChatPanel() {
           body: JSON.stringify({
             messages: apiMessages,
             projectId: currentProject?.id || null,
+            userId: user?.id || null,
+            model: selectedModel,
           }),
         })
 
@@ -227,7 +230,7 @@ export function AiChatPanel() {
         setIsLoading(false)
       }
     },
-    [isLoading, messages, currentProject]
+    [isLoading, messages, currentProject, user]
   )
 
   // Handle keyboard submit

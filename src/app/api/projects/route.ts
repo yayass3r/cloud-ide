@@ -115,10 +115,23 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json()
-    const { id, name, description, isPublic, files } = body
+    const { id, name, description, isPublic, files, userId } = body
 
     if (!id) {
       return NextResponse.json({ error: 'معرف المشروع مطلوب' }, { status: 400 })
+    }
+
+    // Verify ownership
+    if (userId) {
+      const { data: existingProject } = await supabaseAdmin
+        .from('projects')
+        .select('user_id')
+        .eq('id', id)
+        .single()
+
+      if (!existingProject || existingProject.user_id !== userId) {
+        return NextResponse.json({ error: 'ليس لديك صلاحية تعديل هذا المشروع' }, { status: 403 })
+      }
     }
 
     const updateData: Record<string, unknown> = {}
@@ -151,9 +164,23 @@ export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
+    const userId = searchParams.get('userId')
 
     if (!id) {
       return NextResponse.json({ error: 'معرف المشروع مطلوب' }, { status: 400 })
+    }
+
+    // Verify ownership
+    if (userId) {
+      const { data: existingProject } = await supabaseAdmin
+        .from('projects')
+        .select('user_id')
+        .eq('id', id)
+        .single()
+
+      if (!existingProject || existingProject.user_id !== userId) {
+        return NextResponse.json({ error: 'ليس لديك صلاحية حذف هذا المشروع' }, { status: 403 })
+      }
     }
 
     const { error } = await supabaseAdmin
