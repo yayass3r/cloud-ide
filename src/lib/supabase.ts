@@ -3,10 +3,11 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
+// Service role key for admin operations (bypasses RLS)
+// Falls back to anon key if service role key is not set
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 // For admin operations (bypasses RLS)
-export const supabaseAdmin = createClient(
-  supabaseUrl,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
