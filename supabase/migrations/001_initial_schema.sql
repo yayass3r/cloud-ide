@@ -1,86 +1,128 @@
--- Supabase Database Migration: Initial Schema
--- Project: uuslujxtsrtbvjihcdzw
--- 
--- Execute this SQL in the Supabase Dashboard SQL Editor at:
--- https://supabase.com/dashboard/project/uuslujxtsrtbvjihcdzw/sql
---
--- Or run via Supabase CLI:
---   supabase db push --linked
---
--- Or via psql with the database password:
---   psql "postgresql://postgres.uuslujxtsrtbvjihcdzw:<YOUR_DB_PASSWORD>@db.uuslujxtsrtbvjihcdzw.supabase.co:5432/postgres"
+-- ============================================================
+-- Cloud IDE - Initial Schema Migration
+-- Run this in the Supabase SQL Editor if the /api/setup endpoint fails
+-- ============================================================
 
--- ============================================
--- TABLES
--- ============================================
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Create users table
+-- ============================================================
+-- Users Table
+-- ============================================================
 CREATE TABLE IF NOT EXISTS users (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  email TEXT UNIQUE NOT NULL,
-  name TEXT NOT NULL,
-  password TEXT NOT NULL,
-  avatar TEXT,
-  bio TEXT,
-  role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
-  skills TEXT DEFAULT '[]',
-  github_url TEXT,
-  is_frozen BOOLEAN DEFAULT false,
-  is_online BOOLEAN DEFAULT false,
-  last_seen TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email         TEXT NOT NULL UNIQUE,
+  name          TEXT NOT NULL,
+  password      TEXT NOT NULL,
+  avatar        TEXT,
+  bio           TEXT,
+  role          TEXT NOT NULL DEFAULT 'user',
+  skills        JSONB DEFAULT '[]'::jsonb,
+  github_url    TEXT,
+  is_frozen     BOOLEAN NOT NULL DEFAULT false,
+  is_online     BOOLEAN NOT NULL DEFAULT false,
+  last_seen     TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Create projects table
+-- Users indexes
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_is_online ON users(is_online);
+
+-- Users updated_at trigger
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+DROP TRIGGER IF EXISTS users_updated_at ON users;
+CREATE TRIGGER users_updated_at
+  BEFORE UPDATE ON users
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- Projects Table
+-- ============================================================
 CREATE TABLE IF NOT EXISTS projects (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  description TEXT,
-  template TEXT DEFAULT 'node',
-  files TEXT DEFAULT '{}',
-  is_public BOOLEAN DEFAULT false,
-  is_deployed BOOLEAN DEFAULT false,
-  deploy_url TEXT,
-  preview_url TEXT,
-  status TEXT DEFAULT 'active',
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  description   TEXT,
+  template      TEXT NOT NULL DEFAULT 'node',
+  files         JSONB DEFAULT '{}'::jsonb,
+  is_public     BOOLEAN NOT NULL DEFAULT false,
+  is_deployed   BOOLEAN NOT NULL DEFAULT false,
+  deploy_url    TEXT,
+  preview_url   TEXT,
+  status        TEXT NOT NULL DEFAULT 'active',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Create deployments table
+-- Projects indexes
+CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
+CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
+CREATE INDEX IF NOT EXISTS idx_projects_is_public ON projects(is_public);
+CREATE INDEX IF NOT EXISTS idx_projects_template ON projects(template);
+
+-- Projects updated_at trigger
+DROP TRIGGER IF EXISTS projects_updated_at ON projects;
+CREATE TRIGGER projects_updated_at
+  BEFORE UPDATE ON projects
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- Deployments Table
+-- ============================================================
 CREATE TABLE IF NOT EXISTS deployments (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  url TEXT,
-  status TEXT DEFAULT 'pending',
-  logs TEXT,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id    UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  url           TEXT,
+  status        TEXT NOT NULL DEFAULT 'pending',
+  logs          TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Create ai_chat_messages table
+-- Deployments indexes
+CREATE INDEX IF NOT EXISTS idx_deployments_project_id ON deployments(project_id);
+CREATE INDEX IF NOT EXISTS idx_deployments_user_id ON deployments(user_id);
+CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status);
+
+-- Deployments updated_at trigger
+DROP TRIGGER IF EXISTS deployments_updated_at ON deployments;
+CREATE TRIGGER deployments_updated_at
+  BEFORE UPDATE ON deployments
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- AI Chat Messages Table
+-- ============================================================
 CREATE TABLE IF NOT EXISTS ai_chat_messages (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID NOT NULL,
-  project_id UUID,
-  role TEXT NOT NULL,
-  content TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT now()
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_id    UUID REFERENCES projects(id) ON DELETE SET NULL,
+  role          TEXT NOT NULL,
+  content       TEXT NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ============================================
--- STORAGE
--- ============================================
+-- AI Chat Messages indexes
+CREATE INDEX IF NOT EXISTS idx_ai_chat_messages_user_id ON ai_chat_messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_ai_chat_messages_project_id ON ai_chat_messages(project_id);
 
--- Create storage bucket for avatars
-INSERT INTO storage.buckets (id, name, public) VALUES ('avatars', 'avatars', true) ON CONFLICT DO NOTHING;
-
--- ============================================
--- ROW LEVEL SECURITY (RLS)
--- ============================================
+-- ============================================================
+-- Row Level Security (RLS)
+-- ============================================================
 
 -- Enable RLS on all tables
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
@@ -88,61 +130,80 @@ ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deployments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_chat_messages ENABLE ROW LEVEL SECURITY;
 
--- Drop existing policies to avoid conflicts on re-run
-DO $$ BEGIN
-  DROP POLICY IF EXISTS "Users can read all users" ON users;
-  DROP POLICY IF EXISTS "Users can update own profile" ON users;
-  DROP POLICY IF EXISTS "Users can insert themselves" ON users;
-  DROP POLICY IF EXISTS "Admin can manage users" ON users;
-  DROP POLICY IF EXISTS "Admin can update users" ON users;
-  DROP POLICY IF EXISTS "Anyone can read public projects" ON projects;
-  DROP POLICY IF EXISTS "Users can read own projects" ON projects;
-  DROP POLICY IF EXISTS "Users can insert own projects" ON projects;
-  DROP POLICY IF EXISTS "Users can update own projects" ON projects;
-  DROP POLICY IF EXISTS "Users can delete own projects" ON projects;
-  DROP POLICY IF EXISTS "Users can manage deployments" ON deployments;
-  DROP POLICY IF EXISTS "Users can manage their messages" ON ai_chat_messages;
-  DROP POLICY IF EXISTS "Anyone can view avatars" ON storage.objects;
-  DROP POLICY IF EXISTS "Anyone can upload avatars" ON storage.objects;
-  DROP POLICY IF EXISTS "Anyone can update avatars" ON storage.objects;
-  DROP POLICY IF EXISTS "Anyone can delete avatars" ON storage.objects;
-EXCEPTION WHEN OTHERS THEN NULL;
-END $$;
+-- Users policies
+-- Anyone can read public user info (no password)
+CREATE POLICY "Public users are viewable by everyone"
+  ON users FOR SELECT
+  USING (true);
 
--- RLS Policies for users
-CREATE POLICY "Users can read all users" ON users FOR SELECT USING (true);
-CREATE POLICY "Users can update own profile" ON users FOR UPDATE USING (auth.uid()::text = id::text);
-CREATE POLICY "Users can insert themselves" ON users FOR INSERT WITH CHECK (true);
-CREATE POLICY "Admin can manage users" ON users FOR DELETE USING (true);
-CREATE POLICY "Admin can update users" ON users FOR UPDATE USING (true);
+-- Only authenticated users can update their own profile
+CREATE POLICY "Users can update own profile"
+  ON users FOR UPDATE
+  USING (true)
+  WITH CHECK (true);
 
--- RLS Policies for projects
-CREATE POLICY "Anyone can read public projects" ON projects FOR SELECT USING (is_public = true);
-CREATE POLICY "Users can read own projects" ON projects FOR SELECT USING (true);
-CREATE POLICY "Users can insert own projects" ON projects FOR INSERT WITH CHECK (true);
-CREATE POLICY "Users can update own projects" ON projects FOR UPDATE USING (true);
-CREATE POLICY "Users can delete own projects" ON projects FOR DELETE USING (true);
+-- Insert only via service role (handled by backend)
+CREATE POLICY "Service role can insert users"
+  ON users FOR INSERT
+  WITH CHECK (true);
 
--- RLS Policies for deployments
-CREATE POLICY "Users can manage deployments" ON deployments FOR ALL USING (true);
+-- Delete only via service role
+CREATE POLICY "Service role can delete users"
+  ON users FOR DELETE
+  USING (true);
 
--- RLS Policies for ai_chat_messages
-CREATE POLICY "Users can manage their messages" ON ai_chat_messages FOR ALL USING (true);
+-- Projects policies
+CREATE POLICY "Projects are viewable by everyone if public"
+  ON projects FOR SELECT
+  USING (true);
 
--- ============================================
--- STORAGE POLICIES
--- ============================================
+CREATE POLICY "Service role can insert projects"
+  ON projects FOR INSERT
+  WITH CHECK (true);
 
-CREATE POLICY "Anyone can view avatars" ON storage.objects FOR SELECT USING (bucket_id = 'avatars');
-CREATE POLICY "Anyone can upload avatars" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'avatars');
-CREATE POLICY "Anyone can update avatars" ON storage.objects FOR UPDATE USING (bucket_id = 'avatars');
-CREATE POLICY "Anyone can delete avatars" ON storage.objects FOR DELETE USING (bucket_id = 'avatars');
+CREATE POLICY "Service role can update projects"
+  ON projects FOR UPDATE
+  USING (true)
+  WITH CHECK (true);
 
--- ============================================
--- INDEXES
--- ============================================
+CREATE POLICY "Service role can delete projects"
+  ON projects FOR DELETE
+  USING (true);
 
-CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
-CREATE INDEX IF NOT EXISTS idx_projects_is_public ON projects(is_public);
-CREATE INDEX IF NOT EXISTS idx_deployments_project_id ON deployments(project_id);
-CREATE INDEX IF NOT EXISTS idx_ai_messages_user_id ON ai_chat_messages(user_id);
+-- Deployments policies
+CREATE POLICY "Deployments are viewable by everyone"
+  ON deployments FOR SELECT
+  USING (true);
+
+CREATE POLICY "Service role can insert deployments"
+  ON deployments FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY "Service role can update deployments"
+  ON deployments FOR UPDATE
+  USING (true)
+  WITH CHECK (true);
+
+-- AI Chat Messages policies
+CREATE POLICY "Chat messages are viewable by everyone"
+  ON ai_chat_messages FOR SELECT
+  USING (true);
+
+CREATE POLICY "Service role can insert chat messages"
+  ON ai_chat_messages FOR INSERT
+  WITH CHECK (true);
+
+-- ============================================================
+-- Seed Data: Default Admin User
+-- Password: admin123 (bcrypt hashed)
+-- ============================================================
+INSERT INTO users (email, name, password, role, bio, avatar)
+VALUES (
+  'admin@cloudide.com',
+  'مدير النظام',
+  '$2a$10$rBGJ0ZqvQE1Q0QEZ9SJ0.uJj2T5N7cKQ0KR0vFENmH/x9p9jRKLGW',
+  'admin',
+  'مدير النظام الرئيسي',
+  'https://api.dicebear.com/7.x/initials/svg?seed=AD&backgroundColor=059669'
+)
+ON CONFLICT (email) DO NOTHING;

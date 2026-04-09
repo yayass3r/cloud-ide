@@ -1,13 +1,10 @@
-import { PrismaClient } from '@prisma/client'
+/**
+ * Database abstraction layer using Supabase.
+ *
+ * This module re-exports the Supabase admin client as `db` so that existing
+ * code that imported `db` from '@/lib/db' continues to work with minimal churn.
+ *
+ * For new code, prefer importing directly from '@/lib/supabase'.
+ */
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
-}
-
-export const db =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: ['query'],
-  })
-
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+export { supabaseAdmin as db } from '@/lib/supabase'
