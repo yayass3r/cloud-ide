@@ -5,15 +5,20 @@ import { toCamel } from '@/lib/supabase-utils'
 const SYSTEM_PROMPT = 'أنت مساعد ذكي متخصص في البرمجة. ساعد المستخدم في كتابة وتصحيح الكود. أجب باللغة العربية. كن واضحاً ومفصلاً في إجاباتك، وقدم أمثلة عملية عند الحاجة.'
 
 // Model mapping — frontend selector → actual API model names
-const MODEL_MAP: Record<string, string> = {
-  'gpt-4o': 'gpt-4o-mini',
-  'claude-3': 'gpt-4o-mini',
-  'llama-3': 'gpt-4o-mini',
+const MODEL_MAP: Record<string, { provider: string; model: string }> = {
+  // OpenAI models
+  'gpt-4o': { provider: 'openai', model: 'gpt-4o-mini' },
+  'gpt-4': { provider: 'openai', model: 'gpt-4o' },
+  // Groq models (fast)
+  'llama-3': { provider: 'groq', model: 'llama-3.3-70b-versatile' },
+  'claude-3': { provider: 'groq', model: 'claude-3-haiku-20240307' },
+  'mixtral': { provider: 'groq', model: 'mixtral-8x7b-32768' },
+  'gemma2': { provider: 'groq', model: 'gemma2-9b-it' },
 }
 
 /**
- * Call OpenAI-compatible chat completions API directly.
- * Works with OpenAI, ZAI internal, or any compatible endpoint.
+ * Call OpenAI-compatible chat completions API.
+ * Works with OpenAI or any compatible endpoint.
  */
 async function callOpenAI(
   baseUrl: string,
@@ -52,7 +57,45 @@ async function callOpenAI(
 }
 
 /**
- * Try the ZAI SDK (local dev only — internal network)
+ * Call Groq API for fast inference.
+ */
+async function callGroq(
+  apiKey: string,
+  messages: { role: string; content: string }[],
+  model: string = 'llama-3.3-70b-versatile'
+): Promise<string> {
+  const url = 'https://api.groq.com/openai/v1/chat/completions'
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 2048,
+    }),
+  })
+
+  if (!response.ok) {
+    const errText = await response.text()
+    console.error('Groq API error:', response.status, errText)
+    throw new Error(`GROQ_API_ERROR: ${response.status}`)
+  }
+
+  const data = await response.json()
+  const content = data.choices?.[0]?.message?.content
+  if (!content) {
+    throw new Error('GROQ_NO_CONTENT')
+  }
+  return content
+}
+
+/**
+ * Try the ZAI SDK (local dev only)
  */
 async function tryZAISDK(
   messages: { role: string; content: string }[],
@@ -69,33 +112,81 @@ async function tryZAISDK(
 }
 
 /**
- * Get AI response — tries ZAI SDK first (local), then OpenAI API (production)
+ * Get AI response based on the selected model and available providers.
  */
 async function getAIResponse(
   messages: { role: string; content: string }[],
-  selectedModel: string = 'gpt-4o-mini'
+  selectedModel: string = 'gpt-4o-mini',
+  modelConfig?: { provider: string; model: string }
 ): Promise<string> {
+  const provider = modelConfig?.provider || 'openai'
+  const model = modelConfig?.model || selectedModel
+
   // ── Strategy 1: ZAI SDK (local dev / internal network) ──
-  const zaiResult = await tryZAISDK(messages, selectedModel)
+  const zaiResult = await tryZAISDK(messages, model)
   if (zaiResult) return zaiResult
 
-  // ── Strategy 2: OpenAI API via env vars ──
+  // ── Strategy 2: Provider-specific API based on model config ──
+  if (provider === 'groq') {
+    // Try Groq API first
+    const groqKey = process.env.GROQ_API_KEY
+    if (groqKey) {
+      return callGroq(groqKey, messages, model)
+    }
+    
+    // Fallback: Try reading from platform_settings table
+    try {
+      const { data } = await supabaseAdmin
+        .from('platform_settings')
+        .select('value')
+        .eq('key', 'groq_api_key')
+        .single()
+      
+      if (data?.value) {
+        return callGroq(data.value, messages, model)
+      }
+    } catch {
+      // Table doesn't exist or error
+    }
+    
+    console.warn('Groq API key not configured, falling back to OpenAI')
+  }
+
+  // ── Strategy 3: OpenAI API ──
   const openaiKey = process.env.OPENAI_API_KEY
   const openaiBase = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
 
   if (openaiKey) {
-    return callOpenAI(openaiBase, openaiKey, messages, selectedModel)
+    return callOpenAI(openaiBase, openaiKey, messages, model)
   }
 
-  // ── Strategy 3: ZAI env vars (as OpenAI-compatible endpoint) ──
+  // ── Strategy 4: ZAI env vars ──
   const zaiBaseUrl = process.env.ZAI_BASE_URL
   const zaiApiKey = process.env.ZAI_API_KEY
 
   if (zaiBaseUrl && zaiApiKey) {
-    return callOpenAI(zaiBaseUrl, zaiApiKey, messages, selectedModel)
+    return callOpenAI(zaiBaseUrl, zaiApiKey, messages, model)
   }
 
   throw new Error('AI_SERVICE_UNAVAILABLE')
+}
+
+/**
+ * Check if AI chat is enabled via platform settings
+ */
+async function isAIEnabled(): Promise<boolean> {
+  try {
+    const { data } = await supabaseAdmin
+      .from('platform_settings')
+      .select('value')
+      .eq('key', 'ai_enabled')
+      .single()
+    
+    return data?.value !== 'false'
+  } catch {
+    // Table doesn't exist — check env var
+    return process.env.NEXT_PUBLIC_AI_ENABLED !== 'false'
+  }
 }
 
 // ============================================================
@@ -103,6 +194,16 @@ async function getAIResponse(
 // ============================================================
 export async function POST(request: NextRequest) {
   try {
+    // Check if AI is enabled
+    const aiEnabled = await isAIEnabled()
+    if (!aiEnabled) {
+      return NextResponse.json({
+        success: false,
+        error: 'خدمة الذكاء الاصطناعي معطلة حالياً من قبل المدير.',
+        code: 'AI_DISABLED',
+      }, { status: 403 })
+    }
+
     const body = await request.json()
     const { messages, userId, projectId, model } = body
 
@@ -113,8 +214,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Resolve model
-    const selectedModel = MODEL_MAP[model] || 'gpt-4o-mini'
+    // Resolve model config
+    const modelConfig = MODEL_MAP[model] || { provider: 'openai', model: 'gpt-4o-mini' }
 
     // Build full message array with system prompt
     const fullMessages = [
@@ -123,7 +224,7 @@ export async function POST(request: NextRequest) {
     ]
 
     try {
-      const assistantMessage = await getAIResponse(fullMessages, selectedModel)
+      const assistantMessage = await getAIResponse(fullMessages, modelConfig.model, modelConfig)
 
       // Save messages to database if user is authenticated
       if (userId) {
@@ -154,6 +255,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         message: assistantMessage,
+        provider: modelConfig.provider,
+        model: modelConfig.model,
       })
     } catch (aiErr: unknown) {
       const msg = aiErr instanceof Error ? aiErr.message : String(aiErr)
@@ -182,13 +285,44 @@ export async function POST(request: NextRequest) {
 }
 
 // ============================================================
-// GET /api/ai — Get chat history for a project/user
+// GET /api/ai — Get chat history + AI availability info
 // ============================================================
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
     const projectId = searchParams.get('projectId')
+    const checkAvailability = searchParams.get('check')
+
+    // Check AI availability
+    if (checkAvailability === 'true') {
+      const aiEnabled = await isAIEnabled()
+      
+      // Check if at least one AI provider is configured
+      const hasProvider = !!(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || process.env.ZAI_BASE_URL)
+      
+      // Check for Groq key in settings
+      let hasGroqInDb = false
+      try {
+        const { data } = await supabaseAdmin
+          .from('platform_settings')
+          .select('value')
+          .eq('key', 'groq_api_key')
+          .single()
+        hasGroqInDb = !!data?.value
+      } catch {}
+
+      return NextResponse.json({
+        success: true,
+        available: aiEnabled && (hasProvider || hasGroqInDb),
+        enabled: aiEnabled,
+        providers: {
+          openai: !!process.env.OPENAI_API_KEY,
+          groq: !!(process.env.GROQ_API_KEY || hasGroqInDb),
+          zai: !!(process.env.ZAI_BASE_URL && process.env.ZAI_API_KEY),
+        },
+      })
+    }
 
     if (!userId) {
       return NextResponse.json(

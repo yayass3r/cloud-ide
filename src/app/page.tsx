@@ -16,9 +16,10 @@ import IDEView from '@/components/ide/IDEView'
 import ProjectTemplates from '@/components/ide/ProjectTemplates'
 import { AiChatPanel } from '@/components/chat/AiChatPanel'
 import SetupWizard from '@/components/SetupWizard'
+import MobileBottomNav from '@/components/layout/MobileBottomNav'
 
 export default function Home() {
-  const { currentView, user, setUser, logout } = useAppStore()
+  const { currentView, user, setUser, logout, setAiEnabled } = useAppStore()
   const [dbReady, setDbReady] = useState<boolean | null>(null) // null = checking
 
   // Check database setup status on mount
@@ -34,6 +35,16 @@ export default function Home() {
       }
     }
     checkDb()
+
+    // Fetch platform settings (AI enabled, etc.)
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.settings) {
+          setAiEnabled(data.settings.aiEnabled !== false)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   // Restore user session from localStorage and verify JWT with server
@@ -149,7 +160,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background pb-16 md:pb-0">
       {/* Header - hidden for fullscreen IDE and landing page */}
       {!isFullView && !isAuthPage && <AppHeader />}
 
@@ -189,6 +200,9 @@ export default function Home() {
 
       {/* AI Chat Panel - floating overlay */}
       <AiChatPanel />
+
+      {/* Mobile Bottom Navigation */}
+      <MobileBottomNav />
     </div>
   )
 }

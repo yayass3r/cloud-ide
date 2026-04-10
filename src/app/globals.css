@@ -131,3 +131,92 @@
 .animate-gradient {
   animation: gradient-shift 4s ease infinite;
 }
+
+/* Mobile-first improvements */
+@layer base {
+  /* Safe area for iOS notch */
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Touch-friendly minimum sizes */
+  button, a, [role="button"] {
+    min-height: 36px;
+  }
+
+  /* Prevent text selection on interactive elements on mobile */
+  .no-select {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Scrollbar hiding utility */
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Smooth scrolling for mobile */
+  @media (max-width: 768px) {
+    html {
+      scroll-behavior: smooth;
+    }
+    
+    /* Larger touch targets on mobile */
+    .touch-target {
+      min-height: 44px;
+      min-width: 44px;
+    }
+  }
+}
+
+/* Mobile bottom safe area padding */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Swipeable panel animation */
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slide-out-right {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+.animate-slide-out-right {
+  animation: slide-out-right 0.2s ease-in;
+}
+
+/* Mobile card hover fix - remove hover effects on touch */
+@media (hover: none) {
+  .hover\:shadow-md:hover {
+    box-shadow: none;
+  }
+  .hover\:shadow-lg:hover {
+    box-shadow: none;
+  }
+  .hover:\-translate-y-1:hover {
+    transform: none;
+  }
+  .group:hover .group-hover\:opacity-5 {
+    opacity: 0;
+  }
+}

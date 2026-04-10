@@ -14,6 +14,7 @@ import {
   Bot,
   Loader2,
   Settings,
+  WifiOff,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -36,10 +37,27 @@ interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
+  provider?: string
   codeBlocks?: { code: string; language: string }[]
 }
 
-type ModelOption = 'gpt-4o' | 'claude-3' | 'llama-3'
+type ModelOption = 'gpt-4o' | 'llama-3' | 'claude-3' | 'mixtral' | 'gemma2'
+
+interface ModelInfo {
+  id: ModelOption
+  label: string
+  provider: string
+  description: string
+}
+
+// Available models with provider info
+const MODELS: ModelInfo[] = [
+  { id: 'gpt-4o', label: 'GPT-4o Mini', provider: 'OpenAI', description: 'نموذج OpenAI السريع' },
+  { id: 'llama-3', label: 'Llama 3 70B', provider: 'Groq', description: 'نموذج مفتوح المصدر سريع جداً' },
+  { id: 'claude-3', label: 'Claude 3 Haiku', provider: 'Groq', description: 'نموذج Anthropic عبر Groq' },
+  { id: 'mixtral', label: 'Mixtral 8x7B', provider: 'Groq', description: 'نموذج Mistral سريع' },
+  { id: 'gemma2', label: 'Gemma 2 9B', provider: 'Groq', description: 'نموذج Google سريع' },
+]
 
 // Helpers
 function formatTime(date: Date): string {
@@ -141,6 +159,8 @@ const quickActions = [
 
 export function AiChatPanel() {
   const aiChatOpen = useAppStore((s) => s.aiChatOpen)
+  const aiEnabled = useAppStore((s) => s.aiEnabled)
+  const setAiEnabled = useAppStore((s) => s.setAiEnabled)
   const toggleAiChat = useAppStore((s) => s.toggleAiChat)
   const currentProject = useAppStore((s) => s.currentProject)
   const user = useAppStore((s) => s.user)
@@ -149,26 +169,29 @@ export function AiChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [selectedModel, setSelectedModel] = useState<ModelOption>('gpt-4o')
+  const [selectedModel, setSelectedModel] = useState<ModelOption>('llama-3')
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null) // null = not checked yet
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  const currentModelInfo = MODELS.find((m) => m.id === selectedModel) || MODELS[0]
+
   // Check AI availability on mount
   useEffect(() => {
     if (aiChatOpen && aiAvailable === null) {
-      apiFetch('/api/ai', {
-        method: 'POST',
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: 'ping' }],
-        }),
-      })
+      // Check availability via the public settings endpoint
+      fetch('/api/settings')
         .then(res => res.json())
-        .then(data => setAiAvailable(data.success === true))
+        .then(data => {
+          if (data.success) {
+            setAiAvailable(data.settings?.aiEnabled ? true : false)
+            setAiEnabled(data.settings?.aiEnabled !== false)
+          }
+        })
         .catch(() => setAiAvailable(false))
     }
-  }, [aiChatOpen, aiAvailable, apiFetch])
+  }, [aiChatOpen, aiAvailable, setAiEnabled])
 
   // Auto-scroll to bottom on new messages
   const scrollToBottom = useCallback(() => {
@@ -225,6 +248,9 @@ export function AiChatPanel() {
         const data = await response.json()
 
         if (!response.ok || data.success === false) {
+          if (data.code === 'AI_DISABLED') {
+            throw new Error('خدمة الذكاء الاصطناعي معطلة حالياً من قبل المدير.')
+          }
           const errorMsg = data.error || data.code === 'AI_SERVICE_UNAVAILABLE'
             ? 'خدمة الذكاء الاصطناعي غير متاحة حالياً. يتم إعدادها لتعمل في بيئة الإنتاج قريباً.'
             : 'عذراً، حدث خطأ أثناء معالجة طلبك.'
@@ -236,9 +262,11 @@ export function AiChatPanel() {
           role: 'assistant',
           content: data.message || data.content || 'عذراً، لم أتمكن من معالجة طلبك.',
           timestamp: new Date(),
+          provider: data.provider || 'openai',
         }
 
         setMessages((prev) => [...prev, assistantMessage])
+        setAiAvailable(true)
       } catch (err) {
         const errMessage = err instanceof Error ? err.message : 'عذراً، حدث خطأ أثناء معالجة طلبك. يرجى المحاولة مرة أخرى.'
         const errorMessage: ChatMessage = {
@@ -252,7 +280,7 @@ export function AiChatPanel() {
         setIsLoading(false)
       }
     },
-    [isLoading, messages, currentProject, user, apiFetch]
+    [isLoading, messages, currentProject, user, apiFetch, selectedModel]
   )
 
   // Handle keyboard submit
@@ -276,14 +304,15 @@ export function AiChatPanel() {
 
   // Empty state
   const isEmpty = messages.length === 0
-  // Show AI unavailable state when we've checked and it's not available
-  const showAiUnavailable = aiAvailable === false && isEmpty
+  // Show AI unavailable state
+  const showAiDisabled = !aiEnabled
+  const showAiUnavailable = aiAvailable === false && isEmpty && aiEnabled
 
   return (
     <AnimatePresence>
       {aiChatOpen && (
         <motion.div
-          className="fixed top-0 right-0 z-50 h-full flex w-full max-w-[380px]"
+          className="fixed top-0 right-0 z-50 h-full flex w-full max-w-[380px] sm:max-w-[400px]"
           variants={panelVariants}
           initial="closed"
           animate="open"
@@ -311,37 +340,61 @@ export function AiChatPanel() {
             {/* ===== Header ===== */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card/50 backdrop-blur-sm">
               <div className="flex items-center gap-2.5">
-                <div className="flex items-center justify-center size-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md">
+                <div className={cn(
+                  "flex items-center justify-center size-8 rounded-lg text-white shadow-md",
+                  aiEnabled
+                    ? "bg-gradient-to-br from-emerald-500 to-teal-600"
+                    : "bg-gradient-to-br from-gray-400 to-gray-500"
+                )}>
                   <Brain className="size-4.5" />
                 </div>
                 <div className="flex flex-col">
                   <h2 className="text-sm font-bold text-foreground leading-tight">
                     مساعد الذكاء الاصطناعي
                   </h2>
-                  <span className="text-[10px] text-muted-foreground">
-                    مدعوم بالذكاء الاصطناعي
+                  <span className={cn(
+                    "text-[10px]",
+                    aiEnabled ? "text-muted-foreground" : "text-red-500"
+                  )}>
+                    {aiEnabled
+                      ? `${currentModelInfo.provider} — ${currentModelInfo.description}`
+                      : 'معطل من قبل المدير'
+                    }
                   </span>
                 </div>
               </div>
 
               <div className="flex items-center gap-1.5">
                 {/* Model selector */}
-                <Select
-                  value={selectedModel}
-                  onValueChange={(val) => setSelectedModel(val as ModelOption)}
-                >
-                  <SelectTrigger
-                    className="h-7 text-[11px] gap-1 border-zinc-200 dark:border-zinc-700 bg-background w-auto px-2"
-                    size="sm"
+                {aiEnabled && (
+                  <Select
+                    value={selectedModel}
+                    onValueChange={(val) => setSelectedModel(val as ModelOption)}
                   >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                    <SelectItem value="claude-3">Claude 3</SelectItem>
-                    <SelectItem value="llama-3">Llama 3</SelectItem>
-                  </SelectContent>
-                </Select>
+                    <SelectTrigger
+                      className="h-7 text-[11px] gap-1 border-zinc-200 dark:border-zinc-700 bg-background w-auto px-2"
+                      size="sm"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MODELS.map((model) => (
+                        <SelectItem key={model.id} value={model.id}>
+                          <div className="flex flex-col items-start gap-0.5">
+                            <span className="flex items-center gap-1.5">
+                              <span className={cn(
+                                "size-1.5 rounded-full",
+                                model.provider === 'Groq' ? "bg-orange-400" : "bg-green-400"
+                              )} />
+                              {model.label}
+                            </span>
+                            <span className="text-[9px] text-muted-foreground">{model.provider}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
 
                 {/* Close button */}
                 <Button
@@ -359,7 +412,20 @@ export function AiChatPanel() {
             <div className="flex-1 overflow-hidden">
               <ScrollArea className="h-full">
                 <div className="p-4 flex flex-col gap-4 min-h-full">
-                  {showAiUnavailable ? (
+                  {showAiDisabled ? (
+                    /* AI Disabled by admin */
+                    <div className="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
+                      <div className="flex items-center justify-center size-16 rounded-2xl bg-gradient-to-br from-red-500/10 to-red-600/10 border border-red-500/20 mb-4">
+                        <WifiOff className="size-8 text-red-500" />
+                      </div>
+                      <h3 className="text-base font-bold text-foreground mb-1.5">
+                        المساعد الذكي معطل
+                      </h3>
+                      <p className="text-xs text-muted-foreground leading-relaxed max-w-[260px]">
+                        خدمة الذكاء الاصطناعي معطلة حالياً من قبل مدير المنصة. يرجى التواصل مع المدير لتفعيلها.
+                      </p>
+                    </div>
+                  ) : showAiUnavailable ? (
                     /* AI Unavailable state */
                     <div className="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
                       <div className="flex items-center justify-center size-16 rounded-2xl bg-gradient-to-br from-amber-500/10 to-orange-600/10 border border-amber-500/20 mb-4">
@@ -369,14 +435,8 @@ export function AiChatPanel() {
                         المساعد الذكي قيد الإعداد
                       </h3>
                       <p className="text-xs text-muted-foreground leading-relaxed max-w-[260px]">
-                        خدمة الذكاء الاصطناعي غير متاحة حالياً في بيئة الإنتاج. يتم إعدادها لتكون جاهزة قريباً.
+                        خدمة الذكاء الاصطناعي غير متاحة حالياً. يتم إعدادها لتكون جاهزة قريباً.
                       </p>
-                      <div className="mt-6 px-4 py-3 rounded-xl border border-amber-500/20 bg-amber-500/5 max-w-[280px] w-full">
-                        <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-                          💡 يمكن للمسؤول تفعيل الذكاء الاصطناعي عبر إعداد متغيرات البيئة:
-                          <span className="font-mono text-[10px] block mt-1">ZAI_BASE_URL, ZAI_API_KEY</span>
-                        </p>
-                      </div>
                     </div>
                   ) : isEmpty ? (
                     /* Empty state */
@@ -391,8 +451,17 @@ export function AiChatPanel() {
                         يمكنني مساعدتك في كتابة الكود، شرحه، إصلاح الأخطاء، وتحسين الأداء. اطرح سؤالك أو اختر إجراءً سريعاً أدناه.
                       </p>
 
+                      {/* Current model indicator */}
+                      <div className="mt-4 px-3 py-2 rounded-lg bg-muted/50 border border-border">
+                        <p className="text-[11px] text-muted-foreground">
+                          النموذج الحالي:{' '}
+                          <span className="font-medium text-foreground">{currentModelInfo.label}</span>
+                          <span className="text-muted-foreground"> ({currentModelInfo.provider})</span>
+                        </p>
+                      </div>
+
                       {/* Quick actions grid */}
-                      <div className="grid grid-cols-2 gap-2 mt-6 w-full max-w-[280px]">
+                      <div className="grid grid-cols-2 gap-2 mt-4 w-full max-w-[280px]">
                         {quickActions.map((action) => {
                           const Icon = action.icon
                           return (
@@ -460,7 +529,7 @@ export function AiChatPanel() {
             </div>
 
             {/* ===== Quick Actions (when messages exist) ===== */}
-            {!isEmpty && (
+            {!isEmpty && aiEnabled && (
               <div className="px-4 pt-2 border-t border-border bg-card/30">
                 <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-none">
                   {quickActions.map((action) => {
@@ -481,35 +550,42 @@ export function AiChatPanel() {
             )}
 
             {/* ===== Input Area ===== */}
-            <div className="p-3 border-t border-border bg-card/50 backdrop-blur-sm">
-              <div className="relative flex items-end gap-2 rounded-xl border border-border bg-background shadow-sm focus-within:border-emerald-500/50 focus-within:ring-2 focus-within:ring-emerald-500/10 transition-all">
-                <Textarea
-                  ref={textareaRef}
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="اسأل عن الكود الخاص بك..."
-                  disabled={isLoading}
-                  className="flex-1 min-h-[44px] max-h-[120px] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 text-sm leading-relaxed py-3 px-4 placeholder:text-muted-foreground/60"
-                  rows={1}
-                />
-                <Button
-                  size="icon"
-                  className="size-9 rounded-lg m-1.5 bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm disabled:opacity-40 transition-all shrink-0"
-                  onClick={() => sendMessage(inputValue)}
-                  disabled={!inputValue.trim() || isLoading}
-                >
-                  {isLoading ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Send className="size-4" />
-                  )}
-                </Button>
+            {aiEnabled && (
+              <div className="p-3 border-t border-border bg-card/50 backdrop-blur-sm">
+                <div className="relative flex items-end gap-2 rounded-xl border border-border bg-background shadow-sm focus-within:border-emerald-500/50 focus-within:ring-2 focus-within:ring-emerald-500/10 transition-all">
+                  <Textarea
+                    ref={textareaRef}
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="اسأل عن الكود الخاص بك..."
+                    disabled={isLoading}
+                    className="flex-1 min-h-[44px] max-h-[120px] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 text-sm leading-relaxed py-3 px-4 placeholder:text-muted-foreground/60"
+                    rows={1}
+                  />
+                  <Button
+                    size="icon"
+                    className="size-9 rounded-lg m-1.5 bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm disabled:opacity-40 transition-all shrink-0"
+                    onClick={() => sendMessage(inputValue)}
+                    disabled={!inputValue.trim() || isLoading}
+                  >
+                    {isLoading ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Send className="size-4" />
+                    )}
+                  </Button>
+                </div>
+                <div className="flex items-center justify-between mt-1.5 px-1">
+                  <p className="text-[10px] text-muted-foreground/50">
+                    اضغط Enter للإرسال • Shift+Enter لسطر جديد
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/40">
+                    {currentModelInfo.label}
+                  </p>
+                </div>
               </div>
-              <p className="text-[10px] text-muted-foreground/50 mt-1.5 text-center">
-                اضغط Enter للإرسال • Shift+Enter لسطر جديد
-              </p>
-            </div>
+            )}
           </motion.div>
         </motion.div>
       )}
@@ -596,9 +672,14 @@ function MessageBubble({ message }: MessageBubbleProps) {
           )}
         </div>
 
-        {/* Timestamp */}
-        <span className="text-[10px] text-muted-foreground/60 px-1 mt-0.5">
+        {/* Timestamp + Provider */}
+        <span className="text-[10px] text-muted-foreground/60 px-1 mt-0.5 flex items-center gap-1.5">
           {formatTime(message.timestamp)}
+          {!isUser && message.provider && (
+            <span className="text-[9px] px-1 py-0 rounded bg-muted/50">
+              {message.provider === 'groq' ? '⚡ Groq' : message.provider}
+            </span>
+          )}
         </span>
       </div>
     </motion.div>

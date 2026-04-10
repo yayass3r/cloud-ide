@@ -55,6 +55,9 @@ interface AppState {
   sidebarOpen: boolean;
   aiChatOpen: boolean;
 
+  // Platform settings
+  aiEnabled: boolean;
+
   // Theme
   theme: 'light' | 'dark';
 
@@ -68,6 +71,7 @@ interface AppState {
   toggleSidebar: () => void;
   toggleAiChat: () => void;
   setTheme: (theme: 'light' | 'dark') => void;
+  setAiEnabled: (enabled: boolean) => void;
 
   // API helper
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
@@ -103,6 +107,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   projects: [],
   sidebarOpen: true,
   aiChatOpen: false,
+  aiEnabled: true,
   theme: 'dark',
 
   // Actions
@@ -146,6 +151,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleAiChat: () => set((state) => ({ aiChatOpen: !state.aiChatOpen })),
 
   setTheme: (theme) => set({ theme }),
+
+  setAiEnabled: (enabled) => set({ aiEnabled: enabled }),
 
   /**
    * Get authorization headers including the JWT token

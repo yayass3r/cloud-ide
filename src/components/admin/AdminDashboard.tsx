@@ -17,6 +17,14 @@ import {
   Save,
   Lock,
   Loader2,
+  Brain,
+  Key,
+  Settings,
+  RefreshCw,
+  Database,
+  CheckCircle2,
+  AlertCircle,
+  ExternalLink,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -58,6 +66,16 @@ interface AdminStats {
   storage: string
 }
 
+interface PlatformSettings {
+  aiEnabled: string
+  groqApiKey: string
+  hasGroqKey: boolean
+  maxProjectsPerUser: string
+  maxStorageMb: string
+  registrationEnabled: string
+  tableExists: boolean
+}
+
 interface ActivityItem {
   id: string
   message: string
@@ -85,10 +103,14 @@ export default function AdminDashboard() {
   }>({ open: false, userId: '', action: '', userName: '', newValue: null })
 
   // Platform settings
+  const [settings, setSettings] = useState<PlatformSettings | null>(null)
+  const [settingsLoading, setSettingsLoading] = useState(true)
+  const [savingSettings, setSavingSettings] = useState(false)
+  const [groqKeyInput, setGroqKeyInput] = useState('')
   const [maxProjects, setMaxProjects] = useState('10')
   const [maxStorage, setMaxStorage] = useState('500')
+  const [aiEnabled, setAiEnabled] = useState(true)
   const [registrationEnabled, setRegistrationEnabled] = useState(true)
-  const [savingSettings, setSavingSettings] = useState(false)
 
   // Mock activity log
   const mockActivities: ActivityItem[] = [
@@ -103,18 +125,30 @@ export default function AdminDashboard() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [usersRes, statsRes] = await Promise.all([
+        const [usersRes, statsRes, settingsRes] = await Promise.all([
           apiFetch('/api/admin/users'),
           apiFetch('/api/admin/stats'),
+          apiFetch('/api/admin/settings'),
         ])
         const usersData = await usersRes.json()
         const statsData = await statsRes.json()
+        const settingsData = await settingsRes.json()
         setUsers(usersData.users || [])
         setStats(statsData.stats || null)
+
+        if (settingsData.success && settingsData.settings) {
+          const s = settingsData.settings as PlatformSettings
+          setSettings(s)
+          setAiEnabled(s.aiEnabled === 'true')
+          setMaxProjects(s.maxProjectsPerUser)
+          setMaxStorage(s.maxStorageMb)
+          setRegistrationEnabled(s.registrationEnabled === 'true')
+        }
       } catch (err) {
         console.error('Error fetching admin data:', err)
       } finally {
         setLoading(false)
+        setSettingsLoading(false)
       }
     }
     fetchData()
@@ -159,13 +193,53 @@ export default function AdminDashboard() {
 
   const handleSaveSettings = async () => {
     setSavingSettings(true)
-    // Mock save - in real app would save to DB
-    await new Promise((r) => setTimeout(r, 1000))
-    setSavingSettings(false)
-    toast({
-      title: 'تم الحفظ',
-      description: 'تم حفظ إعدادات المنصة بنجاح',
-    })
+    try {
+      const res = await apiFetch('/api/admin/settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          aiEnabled,
+          groqApiKey: groqKeyInput || undefined,
+          maxProjectsPerUser: maxProjects,
+          maxStorageMb: maxStorage,
+          registrationEnabled,
+        }),
+      })
+      const data = await res.json()
+
+      if (data.success) {
+        toast({
+          title: 'تم الحفظ',
+          description: 'تم حفظ إعدادات المنصة بنجاح',
+        })
+        setGroqKeyInput('')
+        // Refresh settings
+        const settingsRes = await apiFetch('/api/admin/settings')
+        const settingsData = await settingsRes.json()
+        if (settingsData.success && settingsData.settings) {
+          setSettings(settingsData.settings)
+        }
+      } else if (data.needsMigration) {
+        toast({
+          title: 'يجب إنشاء جدول الإعدادات',
+          description: 'يرجى تشغيل SQL التالي في محرر SQL في Supabase Dashboard.',
+          variant: 'destructive',
+        })
+      } else {
+        toast({
+          title: 'خطأ',
+          description: data.error || 'فشل في حفظ الإعدادات',
+          variant: 'destructive',
+        })
+      }
+    } catch {
+      toast({
+        title: 'خطأ',
+        description: 'فشل في حفظ الإعدادات',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingSettings(false)
+    }
   }
 
   // Filter users
@@ -246,7 +320,7 @@ export default function AdminDashboard() {
               <Shield className="size-7 text-primary" />
               لوحة تحكم المدير
             </h1>
-            <p className="text-muted-foreground mt-1">إدارة المنصة والمستخدمين</p>
+            <p className="text-muted-foreground mt-1">إدارة المنصة والمستخدمين والإعدادات</p>
           </div>
           <Button variant="outline" onClick={() => navigate('dashboard')} className="gap-2">
             العودة للرئيسية
@@ -523,10 +597,63 @@ export default function AdminDashboard() {
         >
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">إعدادات المنصة</CardTitle>
-              <CardDescription>تحديد إعدادات عامة للمنصة</CardDescription>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Settings className="size-5" />
+                إعدادات المنصة
+              </CardTitle>
+              <CardDescription>تحديد إعدادات عامة للمنصة والمزودين</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              {/* AI Chat Toggle */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center size-9 rounded-lg bg-purple-100 dark:bg-purple-900/50">
+                    <Brain className="size-4 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <div>
+                    <Label className="font-medium">شات الذكاء الاصطناعي</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      تفعيل أو إخفاء مساعد الذكاء الاصطناعي عن المستخدمين
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={aiEnabled}
+                  onCheckedChange={setAiEnabled}
+                />
+              </div>
+
+              {/* Groq API Key */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="groqKey" className="flex items-center gap-2 font-medium">
+                    <Key className="size-4 text-amber-500" />
+                    مفتاح Groq API
+                  </Label>
+                  {settings?.hasGroqKey && (
+                    <Badge variant="outline" className="text-xs gap-1 text-emerald-600 border-emerald-300">
+                      <CheckCircle2 className="size-3" />
+                      متصل
+                    </Badge>
+                  )}
+                </div>
+                <Input
+                  id="groqKey"
+                  type="password"
+                  placeholder="gsk_..."
+                  value={groqKeyInput}
+                  onChange={(e) => setGroqKeyInput(e.target.value)}
+                  dir="ltr"
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  أدخل مفتاح Groq API لتفعيل نماذج الذكاء الاصطناعي السريعة (Llama 3, Claude 3, Mixtral)
+                </p>
+              </div>
+
+              <Separator />
+
+              {/* Max Projects */}
               <div className="space-y-2">
                 <Label htmlFor="maxProjects">الحد الأقصى للمشاريع لكل مستخدم</Label>
                 <Input
@@ -538,6 +665,8 @@ export default function AdminDashboard() {
                   max="100"
                 />
               </div>
+
+              {/* Max Storage */}
               <div className="space-y-2">
                 <Label htmlFor="maxStorage">الحد الأقصى للتخزين (ميجابايت)</Label>
                 <Input
@@ -549,6 +678,8 @@ export default function AdminDashboard() {
                   max="10000"
                 />
               </div>
+
+              {/* Registration Toggle */}
               <div className="flex items-center justify-between">
                 <div>
                   <Label>تسجيل مستخدمين جدد</Label>
@@ -561,7 +692,26 @@ export default function AdminDashboard() {
                   onCheckedChange={setRegistrationEnabled}
                 />
               </div>
+
+              {/* Table Status */}
+              {settings && !settings.tableExists && (
+                <div className="p-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="size-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                    <div className="text-xs text-amber-700 dark:text-amber-400">
+                      <p className="font-medium">جدول الإعدادات غير موجود</p>
+                      <p className="mt-1">
+                        لتفعيل حفظ الإعدادات في قاعدة البيانات، يرجى إنشاء جدول{' '}
+                        <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded text-[10px]">platform_settings</code>{' '}
+                        عبر محرر SQL في Supabase Dashboard.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <Separator />
+
               <Button
                 onClick={handleSaveSettings}
                 disabled={savingSettings}
