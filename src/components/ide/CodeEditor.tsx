@@ -2,7 +2,8 @@
 
 import React, { useState, useMemo, useCallback } from 'react'
 import dynamic from 'next/dynamic'
-import { X, FileCode, FileText, FileJson } from 'lucide-react'
+import { X, FileCode, FileText, FileJson, Circle } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 // Dynamic import MonacoEditor with ssr: false — Monaco requires browser APIs
 const MonacoEditor = dynamic(() => import('./MonacoEditor'), {
@@ -32,6 +33,8 @@ interface CodeEditorProps {
   onCloseFile: (path: string) => void
   onSelectFile: (path: string) => void
   onSave: (path: string, content: string) => void
+  unsavedFiles?: Set<string>
+  saveIndicator?: 'idle' | 'saving' | 'saved' | 'error'
 }
 /* eslint-enable no-unused-vars */
 
@@ -60,6 +63,8 @@ export default function CodeEditor({
   onCloseFile,
   onSelectFile,
   onSave,
+  unsavedFiles = new Set(),
+  saveIndicator = 'idle',
 }: CodeEditorProps) {
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 })
 
@@ -101,44 +106,70 @@ export default function CodeEditor({
           <div className="text-center">
             <FileCode className="h-12 w-12 mx-auto mb-3 opacity-30" />
             <p className="text-sm">اختر ملفًا من المستعرض لبدء التحرير</p>
+            <p className="text-xs text-zinc-700 mt-1">Ctrl+P للبحث السريع عن ملف</p>
           </div>
         </div>
       </div>
     )
   }
 
+  const isUnsaved = unsavedFiles.has(activeFile.path)
+
   // ─── Main editor view ───────────────────────────────────────────────────
   return (
     <div className="h-full flex flex-col bg-zinc-900">
       {/* ── Tab Bar ── */}
-      <div className="flex items-center h-9 bg-zinc-950 border-b border-zinc-800 overflow-x-auto shrink-0">
-        {files.map((file) => (
-          <button
-            key={file.path}
-            onClick={() => onSelectFile(file.path)}
-            className={`flex items-center gap-1.5 px-3 h-full text-xs border-l border-zinc-800 transition-colors min-w-0 shrink-0 ${
-              file.path === activeFile.path
-                ? 'bg-zinc-900 text-zinc-100'
-                : 'bg-zinc-950 text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            {getFileTabIcon(file.name)}
-            <span className="truncate max-w-[80px] sm:max-w-[100px]" dir="ltr">
-              {file.name}
-            </span>
+      <div className="flex items-center h-9 bg-zinc-950 border-b border-zinc-800 overflow-x-auto shrink-0 scrollbar-none">
+        {files.map((file) => {
+          const fileIsUnsaved = unsavedFiles.has(file.path)
+          const fileIsActive = file.path === activeFile.path
+          return (
             <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onCloseFile(file.path)
-              }}
-              className="ml-0.5 p-1 rounded hover:bg-zinc-700 transition-colors active:bg-zinc-600"
-              aria-label="إغلاق الملف"
+              key={file.path}
+              onClick={() => onSelectFile(file.path)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 h-full text-xs border-l border-zinc-800 transition-colors min-w-0 shrink-0 group',
+                fileIsActive
+                  ? 'bg-zinc-900 text-zinc-100'
+                  : 'bg-zinc-950 text-zinc-500 hover:text-zinc-300'
+              )}
             >
-              <X className="h-3 w-3" />
+              {getFileTabIcon(file.name)}
+              <span className="truncate max-w-[80px] sm:max-w-[100px]" dir="ltr">
+                {file.name}
+              </span>
+              {/* Unsaved indicator dot */}
+              {fileIsUnsaved && (
+                <Circle className="h-2 w-2 fill-amber-400 text-amber-400 shrink-0" />
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onCloseFile(file.path)
+                }}
+                className="ml-0.5 p-1 rounded hover:bg-zinc-700 transition-colors active:bg-zinc-600 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                aria-label="إغلاق الملف"
+              >
+                <X className="h-3 w-3" />
+              </button>
             </button>
-          </button>
-        ))}
+          )
+        })}
       </div>
+
+      {/* ── Save indicator bar ── */}
+      {saveIndicator !== 'idle' && (
+        <div className={cn(
+          'flex items-center justify-center h-6 text-[10px] font-medium transition-all shrink-0',
+          saveIndicator === 'saving' && 'bg-amber-500/10 text-amber-400 border-b border-amber-500/20',
+          saveIndicator === 'saved' && 'bg-emerald-500/10 text-emerald-400 border-b border-emerald-500/20',
+          saveIndicator === 'error' && 'bg-red-500/10 text-red-400 border-b border-red-500/20',
+        )}>
+          {saveIndicator === 'saving' && '⟳ جاري حفظ الملف...'}
+          {saveIndicator === 'saved' && '✓ تم حفظ الملف بنجاح'}
+          {saveIndicator === 'error' && '✗ فشل في حفظ الملف'}
+        </div>
+      )}
 
       {/* ── Monaco Editor Area ── */}
       <div className="flex-1 relative overflow-hidden">
@@ -159,6 +190,7 @@ export default function CodeEditor({
           <span>عمود {cursorPos.col}</span>
         </div>
         <div className="flex items-center gap-3">
+          {isUnsaved && <span className="text-amber-400">● غير محفوظ</span>}
           <span>{activeFile.language}</span>
           <span>UTF-8</span>
           <span>{lines} سطر</span>

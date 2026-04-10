@@ -2,6 +2,7 @@
 
 import { useAppStore, type AppView } from '@/store'
 import { cn } from '@/lib/utils'
+import { motion } from 'framer-motion'
 import {
   LayoutDashboard,
   FolderPlus,
@@ -40,7 +41,7 @@ export default function MobileBottomNav() {
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-background/95 backdrop-blur-lg border-t border-border safe-bottom">
-      <div className="flex items-center justify-around px-2 py-1">
+      <div className="flex items-center justify-around px-1 py-1">
         {visibleItems.map((item) => {
           const isActive = currentView === item.view
           const Icon = item.icon
@@ -49,24 +50,45 @@ export default function MobileBottomNav() {
             <button
               key={item.view}
               onClick={() => navigate(item.view)}
-              className={cn(
-                'flex flex-col items-center justify-center gap-0.5 py-2 px-3 rounded-lg transition-all touch-target',
+              className="relative flex flex-col items-center justify-center gap-0.5 py-2 px-2.5 rounded-xl transition-all touch-target min-w-[56px]"
+            >
+              {/* Active background pill */}
+              {isActive && (
+                <motion.div
+                  layoutId="navActivePill"
+                  className="absolute inset-x-2 -inset-y-0.5 rounded-xl bg-emerald-100 dark:bg-emerald-900/40"
+                  transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                />
+              )}
+
+              {/* Icon container */}
+              <div className={cn(
+                'relative flex items-center justify-center size-7 rounded-lg transition-all duration-200',
                 isActive
                   ? 'text-emerald-600 dark:text-emerald-400'
                   : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <div className={cn(
-                'flex items-center justify-center size-8 rounded-lg transition-all',
-                isActive
-                  ? 'bg-emerald-100 dark:bg-emerald-900/40'
-                  : 'hover:bg-muted/50'
               )}>
                 <Icon className="size-4.5" />
               </div>
-              <span className="text-[10px] font-medium leading-tight">
+
+              {/* Label */}
+              <span className={cn(
+                'relative text-[10px] font-medium leading-tight transition-all duration-200',
+                isActive
+                  ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                  : 'text-muted-foreground'
+              )}>
                 {item.label}
               </span>
+
+              {/* Active dot indicator */}
+              {isActive && (
+                <motion.div
+                  layoutId="navActiveDot"
+                  className="absolute -bottom-0.5 size-1 rounded-full bg-emerald-500"
+                  transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                />
+              )}
             </button>
           )
         })}

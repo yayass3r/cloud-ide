@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useAppStore, initAuthFromStorage } from '@/store'
+import { useGlobalShortcuts } from '@/hooks/useKeyboardShortcuts'
+import { KeyboardShortcutsDialog } from '@/components/ui/KeyboardShortcutsDialog'
 import AppHeader from '@/components/layout/AppHeader'
 import LandingPage from '@/components/auth/LandingPage'
 import LoginForm from '@/components/auth/LoginForm'
@@ -20,6 +22,9 @@ import MobileBottomNav from '@/components/layout/MobileBottomNav'
 
 export default function Home() {
   const { currentView, user, setUser, logout, setAiEnabled } = useAppStore()
+
+  // Register global keyboard shortcuts
+  useGlobalShortcuts()
   const [dbReady, setDbReady] = useState<boolean | null>(null) // null = checking
 
   // Check database setup status on mount
@@ -107,19 +112,41 @@ export default function Home() {
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.4 }}
-          className="flex flex-col items-center gap-4"
+          className="flex flex-col items-center gap-5"
         >
-          <div className="size-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-xl shadow-emerald-500/25">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
-            >
+          <div className="relative">
+            <div className="size-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-xl shadow-emerald-500/25">
               <svg className="size-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                <path d="M16 18l6-6-6-6" />
+                <path d="M8 6l-6 6 6 6" />
               </svg>
+            </div>
+            {/* Pulse ring */}
+            <div className="absolute inset-0 rounded-2xl border-2 border-emerald-500/30 animate-ping" style={{ animationDuration: '2s' }} />
+          </div>
+          <div className="text-center space-y-2">
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              className="text-sm font-medium text-foreground"
+            >
+              كود ستوديو
+            </motion.p>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4 }}
+              className="flex items-center gap-1.5"
+            >
+              <div className="flex gap-1">
+                <div className="size-1.5 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="size-1.5 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="size-1.5 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+              <p className="text-xs text-muted-foreground">جاري تحميل التطبيق...</p>
             </motion.div>
           </div>
-          <p className="text-sm text-muted-foreground">جاري تحميل التطبيق...</p>
         </motion.div>
       </div>
     )
@@ -200,6 +227,9 @@ export default function Home() {
 
       {/* AI Chat Panel - floating overlay */}
       <AiChatPanel />
+
+      {/* Keyboard Shortcuts Dialog */}
+      <KeyboardShortcutsDialog />
 
       {/* Mobile Bottom Navigation */}
       <MobileBottomNav />

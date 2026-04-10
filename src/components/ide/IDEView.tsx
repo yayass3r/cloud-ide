@@ -16,6 +16,10 @@ import {
   TerminalSquare,
   FolderTree,
   MoreVertical,
+  Search,
+  Save,
+  X,
+  File,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -25,6 +29,8 @@ import CodeEditor, { OpenFile } from './CodeEditor'
 import { getLanguageFromFileName } from './MonacoEditor'
 import Terminal from './Terminal'
 import LivePreview from './LivePreview'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import { cn } from '@/lib/utils'
 
 function getLanguage(name: string): string {
   return getLanguageFromFileName(name, 'plaintext')
@@ -63,6 +69,14 @@ function useIsMobile(breakpoint = 768) {
   return isMobile
 }
 
+/** Collect all file paths from the project */
+function collectAllFiles(files: Record<string, string>): { path: string; name: string }[] {
+  return Object.keys(files).map((path) => ({
+    path,
+    name: path.split('/').pop() || path,
+  }))
+}
+
 export default function IDEView() {
   const { currentProject, navigate, toggleAiChat, aiChatOpen, apiFetch } = useAppStore()
   const [explorerOpen, setExplorerOpen] = useState(true)
@@ -76,6 +90,11 @@ export default function IDEView() {
   const [mobileTab, setMobileTab] = useState<MobileTab>('editor')
   const [showExplorerSheet, setShowExplorerSheet] = useState(false)
   const [showMobileMenu, setShowMobileMenu] = useState(false)
+  const [saveIndicator, setSaveIndicator] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+
+  // File search dialog state
+  const [showFileSearch, setShowFileSearch] = useState(false)
+  const [fileSearchQuery, setFileSearchQuery] = useState('')
 
   const isMobile = useIsMobile()
 
@@ -83,12 +102,43 @@ export default function IDEView() {
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([])
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
   const [fileContents, setFileContents] = useState<Record<string, string>>({})
+  const [unsavedFiles, setUnsavedFiles] = useState<Set<string>>(new Set())
 
   const template = currentProject?.template || 'static'
 
   const activeFile = useMemo(() => {
     return openFiles.find((f) => f.path === activeFilePath) || null
   }, [openFiles, activeFilePath])
+
+  // All searchable files
+  const allFiles = useMemo(() => {
+    if (currentProject?.files && Object.keys(currentProject.files).length > 0) {
+      return collectAllFiles(currentProject.files)
+    }
+    // Template default files
+    const templateFileMap: Record<string, string> = {}
+    const templateDefaults: Record<string, string[]> = {
+      static: ['index.html', 'style.css', 'script.js'],
+      react: ['package.json', 'src/App.jsx', 'src/index.js', 'src/App.css', 'public/index.html'],
+      node: ['package.json', 'index.js', 'utils/helpers.js', '.env', 'README.md'],
+      python: ['app.py', 'requirements.txt', 'README.md'],
+    }
+    ;(templateDefaults[template] || templateDefaults.static).forEach((f) => {
+      templateFileMap[f] = ''
+    })
+    return collectAllFiles(templateFileMap)
+  }, [currentProject?.files, template])
+
+  // Filtered files for search
+  const filteredFiles = useMemo(() => {
+    if (!fileSearchQuery.trim()) return allFiles
+    const query = fileSearchQuery.toLowerCase()
+    return allFiles.filter(
+      (f) =>
+        f.path.toLowerCase().includes(query) ||
+        f.name.toLowerCase().includes(query)
+    )
+  }, [allFiles, fileSearchQuery])
 
   const handleFileSelect = useCallback((filePath: string, content: string) => {
     setFileContents((prev) => ({ ...prev, [filePath]: content }))
@@ -111,6 +161,8 @@ export default function IDEView() {
     setOpenFiles((prev) =>
       prev.map((f) => (f.path === path ? { ...f, content } : f))
     )
+    // Mark file as unsaved
+    setUnsavedFiles((prev) => new Set([...prev, path]))
   }, [])
 
   const handleCloseFile = useCallback((path: string) => {
@@ -122,6 +174,11 @@ export default function IDEView() {
       }
       return prev
     })
+    setUnsavedFiles((prev) => {
+      const next = new Set(prev)
+      next.delete(path)
+      return next
+    })
   }, [openFiles])
 
   const handleSelectFile = useCallback((path: string) => {
@@ -130,7 +187,16 @@ export default function IDEView() {
 
   const handleSave = useCallback(async (path: string, content: string) => {
     setFileContents((prev) => ({ ...prev, [path]: content }))
-    if (!currentProject) return
+    setSaveIndicator('saving')
+    if (!currentProject) {
+      setSaveIndicator('saved')
+      setUnsavedFiles((prev) => {
+        const next = new Set(prev)
+        next.delete(path)
+        return next
+      })
+      return
+    }
     try {
       const updatedFiles = { ...fileContents, [path]: content }
       await apiFetch('/api/projects', {
@@ -141,10 +207,32 @@ export default function IDEView() {
           files: JSON.stringify(updatedFiles),
         }),
       })
+      setSaveIndicator('saved')
+      setUnsavedFiles((prev) => {
+        const next = new Set(prev)
+        next.delete(path)
+        return next
+      })
     } catch {
-      // Silently handle save errors
+      setSaveIndicator('error')
     }
+    // Reset indicator after 2 seconds
+    setTimeout(() => setSaveIndicator('idle'), 2000)
   }, [currentProject, fileContents, apiFetch])
+
+  // Save active file with Ctrl+S
+  const handleSaveActive = useCallback(() => {
+    if (activeFile) {
+      handleSave(activeFile.path, activeFile.content)
+    }
+  }, [activeFile, handleSave])
+
+  // Close active tab with Ctrl+W
+  const handleCloseActiveTab = useCallback(() => {
+    if (activeFilePath) {
+      handleCloseFile(activeFilePath)
+    }
+  }, [activeFilePath, handleCloseFile])
 
   const handleRun = useCallback(() => {
     setIsRunning(true)
@@ -202,6 +290,47 @@ export default function IDEView() {
     setTimeout(() => setIsRunning(true), 100)
   }, [])
 
+  // Select file from quick search
+  const handleSearchFileSelect = useCallback((filePath: string) => {
+    const content = currentProject?.files?.[filePath] || fileContents[filePath] || ''
+    handleFileSelect(filePath, content)
+    setShowFileSearch(false)
+    setFileSearchQuery('')
+  }, [currentProject?.files, fileContents, handleFileSelect])
+
+  // Keyboard shortcuts for IDE
+  useKeyboardShortcuts([
+    {
+      key: 's',
+      ctrlOrMeta: true,
+      description: 'حفظ',
+      action: handleSaveActive,
+    },
+    {
+      key: 'p',
+      ctrlOrMeta: true,
+      description: 'بحث ملفات',
+      action: () => setShowFileSearch(true),
+    },
+    {
+      key: 'w',
+      ctrlOrMeta: true,
+      description: 'إغلاق تبويب',
+      action: handleCloseActiveTab,
+    },
+    {
+      key: 'Escape',
+      description: 'إغلاق',
+      action: () => {
+        if (showFileSearch) {
+          setShowFileSearch(false)
+          setFileSearchQuery('')
+        }
+      },
+      enabled: () => showFileSearch,
+    },
+  ])
+
   if (!currentProject) {
     return (
       <div className="h-screen flex items-center justify-center bg-zinc-900 text-zinc-400">
@@ -233,6 +362,17 @@ export default function IDEView() {
             </Badge>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            {/* Save indicator */}
+            {saveIndicator !== 'idle' && (
+              <span className={cn(
+                'text-[10px] font-medium px-1.5',
+                saveIndicator === 'saving' && 'text-amber-400',
+                saveIndicator === 'saved' && 'text-emerald-400',
+                saveIndicator === 'error' && 'text-red-400',
+              )}>
+                {saveIndicator === 'saving' ? 'جاري الحفظ...' : saveIndicator === 'saved' ? 'تم الحفظ ✓' : 'فشل الحفظ'}
+              </span>
+            )}
             {deployed && deployUrl && (
               <a href={deployUrl} target="_blank" rel="noopener noreferrer">
                 <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[9px] gap-0.5">
@@ -253,13 +393,27 @@ export default function IDEView() {
               {showMobileMenu && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowMobileMenu(false)} />
-                  <div className="absolute top-full left-0 mt-1 z-50 w-44 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 overflow-hidden">
+                  <div className="absolute top-full left-0 mt-1 z-50 w-48 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl py-1 overflow-hidden">
                     <button
                       className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
                       onClick={() => { handleRun(); setShowMobileMenu(false) }}
                     >
                       <Play className="h-3.5 w-3.5 text-emerald-400" />
                       تشغيل
+                    </button>
+                    <button
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
+                      onClick={() => { handleSaveActive(); }}
+                    >
+                      <Save className="h-3.5 w-3.5 text-blue-400" />
+                      حفظ
+                    </button>
+                    <button
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
+                      onClick={() => { setShowFileSearch(true); setShowMobileMenu(false) }}
+                    >
+                      <Search className="h-3.5 w-3.5 text-cyan-400" />
+                      بحث ملفات
                     </button>
                     <button
                       className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
@@ -339,6 +493,8 @@ export default function IDEView() {
               onCloseFile={handleCloseFile}
               onSelectFile={handleSelectFile}
               onSave={handleSave}
+              unsavedFiles={unsavedFiles}
+              saveIndicator={saveIndicator}
             />
           </div>
 
@@ -388,12 +544,58 @@ export default function IDEView() {
             </div>
           </>
         )}
+
+        {/* File Search Dialog (Mobile) */}
+        {showFileSearch && (
+          <>
+            <div className="fixed inset-0 bg-black/50 z-40" onClick={() => { setShowFileSearch(false); setFileSearchQuery('') }} />
+            <div className="fixed top-20 left-3 right-3 z-50 bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-700">
+                <Search className="h-4 w-4 text-zinc-400 shrink-0" />
+                <input
+                  type="text"
+                  value={fileSearchQuery}
+                  onChange={(e) => setFileSearchQuery(e.target.value)}
+                  placeholder="بحث عن ملف..."
+                  className="flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 outline-none"
+                  autoFocus
+                  dir="ltr"
+                />
+                <button
+                  onClick={() => { setShowFileSearch(false); setFileSearchQuery('') }}
+                  className="text-zinc-400 hover:text-zinc-200"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="max-h-60 overflow-y-auto py-1">
+                {filteredFiles.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-sm text-zinc-500">
+                    لا توجد نتائج
+                  </div>
+                ) : (
+                  filteredFiles.slice(0, 10).map((file) => (
+                    <button
+                      key={file.path}
+                      onClick={() => handleSearchFileSelect(file.path)}
+                      className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+                      dir="ltr"
+                    >
+                      <File className="h-4 w-4 text-zinc-500 shrink-0" />
+                      <span className="truncate">{file.path}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     )
   }
 
   // ─────────────────────────────────────────────────────
-  // DESKTOP VIEW (original)
+  // DESKTOP VIEW
   // ─────────────────────────────────────────────────────
   return (
     <div className="h-screen flex flex-col bg-zinc-900 text-zinc-100" dir="rtl">
@@ -428,6 +630,17 @@ export default function IDEView() {
             <Badge variant="destructive" className="text-[10px] gap-1">
               فشل النشر
             </Badge>
+          )}
+          {/* Save indicator */}
+          {saveIndicator !== 'idle' && (
+            <span className={cn(
+              'text-[10px] font-medium transition-all',
+              saveIndicator === 'saving' && 'text-amber-400',
+              saveIndicator === 'saved' && 'text-emerald-400',
+              saveIndicator === 'error' && 'text-red-400',
+            )}>
+              {saveIndicator === 'saving' ? '⟳ جاري الحفظ...' : saveIndicator === 'saved' ? '✓ تم الحفظ' : '✗ فشل الحفظ'}
+            </span>
           )}
         </div>
 
@@ -468,7 +681,16 @@ export default function IDEView() {
             <PanelGroup direction="vertical" className="h-full">
               <PanelGroup direction="horizontal" className="flex-1">
                 <Panel defaultSize={60} minSize={25}>
-                  <CodeEditor files={openFiles} activeFile={activeFile} onContentChange={handleContentChange} onCloseFile={handleCloseFile} onSelectFile={handleSelectFile} onSave={handleSave} />
+                  <CodeEditor
+                    files={openFiles}
+                    activeFile={activeFile}
+                    onContentChange={handleContentChange}
+                    onCloseFile={handleCloseFile}
+                    onSelectFile={handleSelectFile}
+                    onSave={handleSave}
+                    unsavedFiles={unsavedFiles}
+                    saveIndicator={saveIndicator}
+                  />
                 </Panel>
                 <PanelResizeHandle className="w-1 bg-zinc-800 hover:bg-zinc-700 transition-colors active:bg-emerald-500/50" />
                 <Panel defaultSize={40} minSize={20}>
@@ -484,6 +706,59 @@ export default function IDEView() {
           </Panel>
         </PanelGroup>
       </div>
+
+      {/* File Search Dialog (Desktop) */}
+      {showFileSearch && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => { setShowFileSearch(false); setFileSearchQuery('') }} />
+          <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 w-[480px] max-w-[90vw] bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-700">
+              <Search className="h-4 w-4 text-zinc-400 shrink-0" />
+              <input
+                type="text"
+                value={fileSearchQuery}
+                onChange={(e) => setFileSearchQuery(e.target.value)}
+                placeholder="بحث عن ملف... (Ctrl+P)"
+                className="flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-500 outline-none"
+                autoFocus
+                dir="ltr"
+              />
+              <kbd className="text-[10px] text-zinc-500 border border-zinc-600 rounded px-1.5 py-0.5">ESC</kbd>
+            </div>
+            <div className="max-h-72 overflow-y-auto py-1">
+              {filteredFiles.length === 0 ? (
+                <div className="px-4 py-8 text-center">
+                  <File className="h-8 w-8 mx-auto text-zinc-600 mb-2" />
+                  <p className="text-sm text-zinc-500">لا توجد ملفات مطابقة</p>
+                </div>
+              ) : (
+                filteredFiles.slice(0, 12).map((file, index) => (
+                  <button
+                    key={file.path}
+                    onClick={() => handleSearchFileSelect(file.path)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors text-left",
+                      index === 0 && fileSearchQuery && "bg-zinc-700/50"
+                    )}
+                    dir="ltr"
+                  >
+                    <File className="h-4 w-4 text-zinc-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <span className="truncate block">{file.name}</span>
+                      <span className="text-xs text-zinc-500 truncate block">{file.path}</span>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+            <div className="px-4 py-2 border-t border-zinc-700 bg-zinc-800/50">
+              <p className="text-[10px] text-zinc-500">
+                {filteredFiles.length} ملف • اضغط Enter لفتح الملف المحدد
+              </p>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -128,6 +128,16 @@ export async function POST(request: NextRequest) {
       })
       .filter(Boolean)
 
+    // 4. Try to create platform_settings table if it doesn't exist
+    const { error: settingsCheck } = await supabaseAdmin
+      .from('platform_settings')
+      .select('key')
+      .limit(1)
+
+    // If the table doesn't exist, we can't create it via REST API
+    // The admin panel handles this gracefully with a warning
+    const settingsTableExists = !settingsCheck
+
     if (missingTables.length > 0) {
       let sql = ''
       try {
