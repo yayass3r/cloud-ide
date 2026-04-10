@@ -219,3 +219,44 @@ The z-ai-web-dev-sdk AI service runs on an internal network (172.25.136.193) and
 ### Pushed to GitHub
 - Commit: `fix: AI chat - add multi-backend support and graceful unavailability UI`
 - Branch: `main`
+
+---
+
+## Task 6: Integrate OpenAI API for AI Chat
+
+**Date:** 2026-04-10
+**Status:** ✅ Completed
+
+### Summary
+Integrated OpenAI API to enable the AI chat assistant in production on Netlify. The AI now responds to users with high-quality programming assistance in Arabic.
+
+### What was done
+
+1. **User provided OpenAI service account API key** (`sk-svcacct-...`)
+
+2. **Rewrote `/api/ai/route.ts`** — Simplified 3-tier architecture:
+   - **Tier 1**: ZAI SDK (local dev / internal network only)
+   - **Tier 2**: OpenAI API via `OPENAI_API_KEY` env var (production)
+   - **Tier 3**: ZAI env vars as OpenAI-compatible endpoint (fallback)
+   - Removed complex config file handling, fs imports
+   - Uses `gpt-4o-mini` for cost efficiency
+   - All model options map to `gpt-4o-mini` (can be customized per model)
+
+3. **Set `OPENAI_API_KEY` on Netlify** via `netlify env:set`
+
+4. **Tested successfully on deployed site**
+   - AI responded with detailed Python factorial code example in Arabic
+   - Response included code blocks, explanations, and two implementation methods
+
+### Verification
+- ✅ AI chat responds on production (`https://cloud-ide-ar.netlify.app`)
+- ✅ Responses are in Arabic as configured
+- ✅ Code blocks are properly formatted
+- ✅ Chat messages saved to Supabase database
+
+### Files modified
+- `src/app/api/ai/route.ts` — Complete rewrite with OpenAI primary backend
+
+### Pushed to GitHub
+- Commit: `feat: integrate OpenAI API for AI chat in production`
+- Branch: `main`
