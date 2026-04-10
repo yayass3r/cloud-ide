@@ -123,7 +123,7 @@ export default function CodeEditor({
             }`}
           >
             {getFileTabIcon(file.name)}
-            <span className="truncate max-w-[100px]" dir="ltr">
+            <span className="truncate max-w-[80px] sm:max-w-[100px]" dir="ltr">
               {file.name}
             </span>
             <button
@@ -131,7 +131,8 @@ export default function CodeEditor({
                 e.stopPropagation()
                 onCloseFile(file.path)
               }}
-              className="ml-1 p-0.5 rounded hover:bg-zinc-700 transition-colors"
+              className="ml-0.5 p-1 rounded hover:bg-zinc-700 transition-colors active:bg-zinc-600"
+              aria-label="إغلاق الملف"
             >
               <X className="h-3 w-3" />
             </button>

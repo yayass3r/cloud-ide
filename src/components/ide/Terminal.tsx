@@ -214,7 +214,7 @@ export default function Terminal({ template }: TerminalProps) {
   return (
     <div className="h-full flex flex-col bg-zinc-950 rounded-lg overflow-hidden border border-zinc-800">
       {/* Terminal Header */}
-      <div className="flex items-center justify-between h-8 px-3 bg-zinc-900 border-b border-zinc-800 shrink-0">
+      <div className="flex items-center justify-between h-9 px-3 bg-zinc-900 border-b border-zinc-800 shrink-0">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
@@ -228,7 +228,7 @@ export default function Terminal({ template }: TerminalProps) {
           <Button
             variant="ghost"
             size="sm"
-            className="h-5 w-5 p-0 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+            className="h-7 w-7 p-0 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
             onClick={() => inputRef.current?.focus()}
           >
             <Maximize2 className="h-3 w-3" />
@@ -236,7 +236,7 @@ export default function Terminal({ template }: TerminalProps) {
           <Button
             variant="ghost"
             size="sm"
-            className="h-5 w-5 p-0 text-zinc-500 hover:text-red-400 hover:bg-zinc-800"
+            className="h-7 w-7 p-0 text-zinc-500 hover:text-red-400 hover:bg-zinc-800"
             onClick={() => setLines([])}
           >
             <Trash2 className="h-3 w-3" />

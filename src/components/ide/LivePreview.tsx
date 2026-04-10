@@ -213,15 +213,15 @@ export default function LivePreview({ files, template, projectName, isRunning, o
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 w-6 p-0 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+          className="h-7 w-7 p-0 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
           onClick={onRefresh}
         >
-          <RefreshCw className="h-3 w-3" />
+          <RefreshCw className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 w-6 p-0 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
+          className="h-7 w-7 p-0 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800"
           onClick={() => {
             const iframe = document.querySelector('iframe[data-preview]')
             if (iframe) {
@@ -233,7 +233,7 @@ export default function LivePreview({ files, template, projectName, isRunning, o
             }
           }}
         >
-          <ExternalLink className="h-3 w-3" />
+          <ExternalLink className="h-3.5 w-3.5" />
         </Button>
       </div>
 
@@ -242,7 +242,7 @@ export default function LivePreview({ files, template, projectName, isRunning, o
         <Button
           variant="ghost"
           size="sm"
-          className={`h-6 w-6 p-0 ${deviceMode === 'desktop' ? 'text-emerald-400 bg-zinc-800' : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800'}`}
+          className={`h-7 w-7 p-0 ${deviceMode === 'desktop' ? 'text-emerald-400 bg-zinc-800' : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800'}`}
           onClick={() => setDeviceMode('desktop')}
         >
           <Monitor className="h-3 w-3" />
@@ -250,7 +250,7 @@ export default function LivePreview({ files, template, projectName, isRunning, o
         <Button
           variant="ghost"
           size="sm"
-          className={`h-6 w-6 p-0 ${deviceMode === 'tablet' ? 'text-emerald-400 bg-zinc-800' : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800'}`}
+          className={`h-7 w-7 p-0 ${deviceMode === 'tablet' ? 'text-emerald-400 bg-zinc-800' : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800'}`}
           onClick={() => setDeviceMode('tablet')}
         >
           <Tablet className="h-3 w-3" />
@@ -258,7 +258,7 @@ export default function LivePreview({ files, template, projectName, isRunning, o
         <Button
           variant="ghost"
           size="sm"
-          className={`h-6 w-6 p-0 ${deviceMode === 'mobile' ? 'text-emerald-400 bg-zinc-800' : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800'}`}
+          className={`h-7 w-7 p-0 ${deviceMode === 'mobile' ? 'text-emerald-400 bg-zinc-800' : 'text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800'}`}
           onClick={() => setDeviceMode('mobile')}
         >
           <Smartphone className="h-3 w-3" />

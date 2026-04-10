@@ -87,7 +87,7 @@ function parseCodeBlocks(content: string): {
 // Animation variants
 const panelVariants = {
   open: { x: 0, opacity: 1 },
-  closed: { x: 380, opacity: 0 },
+  closed: { x: '100%', opacity: 0 },
 }
 
 const messageVariants = {
@@ -283,8 +283,7 @@ export function AiChatPanel() {
     <AnimatePresence>
       {aiChatOpen && (
         <motion.div
-          className="fixed top-0 right-0 z-50 h-full flex"
-          style={{ width: 380 }}
+          className="fixed top-0 right-0 z-50 h-full flex w-full max-w-[380px]"
           variants={panelVariants}
           initial="closed"
           animate="open"
@@ -292,9 +291,9 @@ export function AiChatPanel() {
           transition={{ type: 'spring', damping: 28, stiffness: 300 }}
           dir="rtl"
         >
-          {/* Backdrop on mobile */}
+          {/* Backdrop */}
           <motion.div
-            className="fixed inset-0 bg-black/40 md:hidden"
+            className="fixed inset-0 bg-black/40"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -304,9 +303,9 @@ export function AiChatPanel() {
           {/* Panel */}
           <motion.div
             className="relative h-full w-full flex flex-col bg-background border-l border-border shadow-2xl"
-            initial={{ x: 380 }}
+            initial={{ x: '100%' }}
             animate={{ x: 0 }}
-            exit={{ x: 380 }}
+            exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 300 }}
           >
             {/* ===== Header ===== */}
