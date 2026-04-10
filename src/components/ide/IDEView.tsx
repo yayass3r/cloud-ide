@@ -46,7 +46,7 @@ function getTemplateColor(template: string): string {
 }
 
 export default function IDEView() {
-  const { currentProject, navigate, toggleAiChat, aiChatOpen } = useAppStore()
+  const { currentProject, navigate, toggleAiChat, aiChatOpen, apiFetch } = useAppStore()
   const [explorerOpen, setExplorerOpen] = useState(true)
   const [isRunning, setIsRunning] = useState(false)
   const [isDeploying, setIsDeploying] = useState(false)
